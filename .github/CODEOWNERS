@@ -1,0 +1,10 @@
+# CODEOWNERS for Tabula
+# Default: any steward can review.
+# Add @omniscia and Vivake's GitHub handle once they accept invitations.
+
+* @rjwalters
+
+# Schema and SPEC require steward review (currently routes to founding steward;
+# extend to multi-owner as stewards accept invitations)
+/schema/ @rjwalters
+/SPEC.md @rjwalters

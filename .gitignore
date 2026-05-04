@@ -1,0 +1,23 @@
+# Editor
+.vscode/
+.idea/
+*.swp
+.DS_Store
+
+# Python (likely future)
+__pycache__/
+*.pyc
+.venv/
+venv/
+*.egg-info/
+dist/
+build/
+
+# Node
+node_modules/
+
+# Local dev
+.env
+.env.local
+*.log
+tmp/
