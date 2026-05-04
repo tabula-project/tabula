@@ -1,0 +1,96 @@
+$schema: https://json-schema.org/draft/2020-12/schema
+$id: https://tabula-project.org/schema/v1/types/event.yaml
+title: Tabula Event
+description: |
+  Time-and-space coordinate. A moment that happened, is happening, or is
+  scheduled. Birthdays, anniversaries, milestones, production days, travel,
+  meetings.
+
+  Distinct from `observation` (something noticed about the world) and
+  `decision` (something committed to). An event is a happened-or-will-happen
+  thing.
+
+allOf:
+  - $ref: ../frontmatter-base.yaml
+  - type: object
+    properties:
+      type:
+        const: event
+
+    required:
+      - title
+      - when
+
+    properties:
+      title:
+        type: string
+        description: Short headline.
+
+      when:
+        type: object
+        description: |
+          When the event occurred or will occur. Either a single timestamp
+          or a range. Use `recurrence` for repeating events.
+        oneOf:
+          - properties:
+              instant: {type: string, format: date-time}
+            required: [instant]
+          - properties:
+              start: {type: string, format: date-time}
+              end: {type: string, format: date-time}
+            required: [start, end]
+          - properties:
+              date: {type: string, format: date}
+            required: [date]
+
+      location:
+        type: string
+        pattern: ^location:[a-z0-9-]+$
+        description: Place canonical ID where the event happens.
+
+      participants:
+        type: array
+        description: Person canonical IDs involved.
+        items: {type: string, pattern: ^person:[a-z0-9-]+$}
+
+      kind:
+        type: string
+        description: |
+          Free-form classifier. Common: birthday, anniversary, travel,
+          milestone, meeting, production-day, deadline, holiday.
+
+      recurrence:
+        type: [string, "null"]
+        description: |
+          RRULE-style recurrence (RFC 5545). Null for one-off events.
+        examples:
+          - "FREQ=YEARLY;BYMONTH=4;BYMONTHDAY=15"
+          - "FREQ=WEEKLY;BYDAY=MO,WE,FR"
+
+      external_calendar_ref:
+        type: string
+        description: |
+          When ingested from a calendar source, the source-system event ID.
+        examples: [google-cal:abc123, icloud:def456, caldav:event-789]
+
+      attendance_status:
+        type: object
+        description: |
+          Per-participant RSVP / attendance. Map of person:<id> → status.
+        additionalProperties:
+          type: string
+          enum: [pending, accepted, declined, tentative, attended, missed]
+
+examples:
+  - id: 01HXBBEVENT4Y2K
+    type: event
+    created_at: 2026-05-04T18:00:00Z
+    author: person:omniscia
+    audience: [family]
+    title: "Carmel arrives in Florence"
+    when:
+      date: 2026-05-04
+    location: location:florence-studio
+    participants: [person:omniscia, person:carmel]
+    kind: travel
+    tags: [personal, partner-visit]

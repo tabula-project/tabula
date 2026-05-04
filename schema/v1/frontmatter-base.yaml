@@ -1,0 +1,189 @@
+# Tabula frontmatter base v1
+#
+# Every Tabula record's frontmatter inherits from this. Type-specific schemas
+# in types/<name>.yaml extend it.
+#
+# Lifted and refined from TWIN-V1 Appendix A.
+
+$schema: https://json-schema.org/draft/2020-12/schema
+$id: https://tabula-project.org/schema/v1/frontmatter-base.yaml
+title: Tabula Frontmatter Base
+description: Universal fields present on every Tabula record, regardless of type.
+
+type: object
+required:
+  - id
+  - type
+  - created_at
+  - audience
+
+properties:
+  id:
+    type: string
+    description: ULID (Crockford base32, 26 chars, time-sortable).
+    pattern: ^[0-9A-HJKMNP-TV-Z]{26}$
+    examples: [01HXAA9ABCDEF12345NOPQR]
+
+  type:
+    type: string
+    description: |
+      Content type. Determines which type-specific schema applies.
+      Core types live in schema/v1/types/. Extension namespace types use a
+      colon-prefixed form, e.g. luce:shot, bower:chat_thread.
+    pattern: ^([a-z_]+|[a-z_]+:[a-z_]+)$
+    examples: [decision, observation, person, luce:shot, bower:chat_thread]
+
+  created_at:
+    type: string
+    format: date-time
+    description: ISO 8601 timestamp when this record was created.
+
+  modified_at:
+    type: string
+    format: date-time
+    description: |
+      ISO 8601 timestamp of last meaningful edit (not just reflow).
+      May be omitted if equal to created_at.
+
+  author:
+    type: string
+    description: |
+      Canonical entity ID of the author (typically a `person:` reference).
+      For agent-generated records, may be `agent:<name>` or `system:<rig>`.
+    examples: [person:omniscia, person:rjwalters, agent:luce-l2-coordinator]
+
+  audience:
+    type: array
+    description: |
+      Audience tier IDs that may read this record. Enforced by encryption +
+      repo-access boundary (both required). Plaintext frontmatter remains
+      readable to anyone with repo access; body is age-encrypted to the tier.
+    items:
+      type: string
+      pattern: ^[a-z_-]+$
+    minItems: 1
+    examples:
+      - [self]
+      - [family]
+      - [project]
+      - [public]
+      - [project, family]
+
+  encryption:
+    type: [string, "null"]
+    description: |
+      Encryption recipe identifier, or null for plaintext. Format:
+      age:v1:<keyset-id>. The keyset identifier resolves to one or more
+      age recipient keys via the consumer's local keyring config.
+    pattern: ^age:v[0-9]+:[a-z0-9-]+$
+    examples: [age:v1:keyset-2026, age:v1:family-tier-2026]
+
+  classification:
+    type: string
+    description: |
+      Human-readable classification label. Used in UI listings and audit
+      logs; not enforced. Common values: public, project-internal,
+      family-private, sovereign-self, posthumous.
+    examples: [public, project-internal, family-private]
+
+  source:
+    type: string
+    description: |
+      Provenance of this record. URI-like format identifying origin.
+      Examples: telegram://msg-12345, signal://thread/abc/msg/def,
+      kitsu://shot/T500, manual, etl:claude-mem://session-xyz.
+
+  entities:
+    type: array
+    description: |
+      Canonical entity IDs referenced by this record (people, orgs, places,
+      tools, projects). Enables graph traversal at L3 without parsing body.
+    items:
+      type: string
+      pattern: ^[a-z_]+:[a-z0-9-]+$
+    examples:
+      - [person:omniscia, org:tabula-project]
+      - [shot:eve-s001-c0001, person:charles, location:florence-studio]
+
+  relations:
+    type: object
+    description: |
+      Typed relationships to other Tabula records. Each value is a list of
+      record IDs (ULIDs). Adopting four core relation types from Luce.
+    properties:
+      references:
+        type: array
+        description: This record cites or builds on these records.
+        items: {type: string, pattern: ^[0-9A-HJKMNP-TV-Z]{26}$}
+      supersedes:
+        type: array
+        description: This record replaces these records (older versions).
+        items: {type: string, pattern: ^[0-9A-HJKMNP-TV-Z]{26}$}
+      caused_by:
+        type: array
+        description: This record exists because of these records (decisions, events).
+        items: {type: string, pattern: ^[0-9A-HJKMNP-TV-Z]{26}$}
+      is_about:
+        type: array
+        description: This record discusses or commentates on these records.
+        items: {type: string, pattern: ^[0-9A-HJKMNP-TV-Z]{26}$}
+    additionalProperties: false
+
+  tags:
+    type: array
+    description: Free-form labels. Cheap to add; not validated.
+    items:
+      type: string
+      pattern: ^[a-z0-9_-]+$
+
+  release_trigger:
+    type: string
+    enum: [immediate, conditional, delayed, posthumous]
+    description: |
+      When this record becomes visible to its audience.
+      - immediate: visible now (default)
+      - conditional: visible when release_condition is met
+      - delayed: visible at a future timestamp (in release_condition)
+      - posthumous: visible after the author's confirmed death
+
+  release_condition:
+    type: [string, "null"]
+    description: |
+      When release_trigger is conditional or delayed, this describes the
+      condition. For delayed: ISO 8601 timestamp. For conditional: free-form
+      description (must be human-evaluable; agents should not auto-release
+      on conditional alone).
+
+  redactions:
+    type: array
+    description: |
+      List of redaction directives applied to body content (per-recipient
+      removals). Used for posthumous letters where some content varies by
+      reader.
+    items:
+      type: object
+      required: [for, action]
+      properties:
+        for:
+          type: array
+          description: Audience members to whom the redaction applies.
+          items: {type: string}
+        action:
+          type: string
+          enum: [strip-section, strip-paragraph, replace]
+        target:
+          type: string
+          description: Section heading or paragraph anchor.
+        replacement:
+          type: string
+          description: Text to substitute (when action is replace).
+
+  external_ids:
+    type: object
+    description: |
+      Identifiers from external systems (Kitsu UUIDs, Slack TS, GitHub SHA,
+      Telegram message IDs, etc.). Free-form key-value map.
+    additionalProperties:
+      type: string
+
+additionalProperties: true  # Type-specific schemas add fields; permissive at base.

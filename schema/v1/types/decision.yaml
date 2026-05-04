@@ -1,0 +1,158 @@
+$schema: https://json-schema.org/draft/2020-12/schema
+$id: https://tabula-project.org/schema/v1/types/decision.yaml
+title: Tabula Decision
+description: |
+  A recorded decision with options-considered, rationale, downstream effects,
+  and outcome. Format adopted from Luce's institutional-learning practice.
+
+  Code shows what. Commits show when. Decision traces show why — and why not
+  the alternatives. Without the alternatives-considered structure, decisions
+  devolve into "we did X" which loses the institutional learning value.
+
+allOf:
+  - $ref: ../frontmatter-base.yaml
+  - type: object
+    properties:
+      type:
+        const: decision
+
+    required:
+      - decision
+      - context
+      - options_considered
+      - choice
+      - rationale
+
+    properties:
+      decision:
+        type: string
+        description: One-sentence summary of what changed.
+        examples:
+          - "Adopt Apache 2.0 license for Tabula substrate."
+          - "Use R2 over B2 for Eve production media storage."
+
+      context:
+        type: string
+        description: What prompted this — the problem or opportunity.
+
+      options_considered:
+        type: array
+        description: |
+          Each alternative considered, with its pros and cons. The "why not
+          the alternatives" is often the most valuable record.
+        minItems: 1
+        items:
+          type: object
+          required: [id, description]
+          properties:
+            id:
+              type: string
+              description: Short identifier (a, b, c... or status-quo, option-1...).
+            description:
+              type: string
+              description: One- or two-sentence summary of this option.
+            pros:
+              type: array
+              items: {type: string}
+            cons:
+              type: array
+              items: {type: string}
+            cost_estimate:
+              type: string
+              description: Free-form cost description (time, money, complexity).
+
+      choice:
+        type: string
+        description: Which option was chosen (matches an option id).
+
+      rationale:
+        type: string
+        description: Why this option won.
+
+      downstream_effects:
+        type: array
+        description: |
+          What else changes as a result. Can include record IDs (other
+          decisions, projects, observations) or free-form descriptions of
+          changes that follow from this decision.
+        items: {type: string}
+
+      outcome:
+        type: [string, "null"]
+        description: |
+          Filled in retrospectively. Did the decision work? Date the outcome
+          assessment in the body. Initial value should be null when the
+          decision is committed; updated later as evidence accumulates.
+
+      state:
+        type: string
+        enum: [proposed, ratified, committed, superseded, reversed]
+        default: committed
+        description: |
+          Lifecycle state. proposed=under discussion; ratified=agreed but
+          not yet acted on; committed=in effect; superseded=replaced by
+          another decision (relations.supersedes points back); reversed=
+          rolled back without replacement.
+
+      committers:
+        type: array
+        description: |
+          Entity IDs of people/agents who explicitly affirmed this decision.
+          Distinct from `author` (one record-creator) — committers can be
+          multiple stewards/co-founders. Used by Luce's commitment gate.
+        items:
+          type: string
+          pattern: ^[a-z_]+:[a-z0-9-]+$
+
+      conservation_class:
+        type: string
+        description: |
+          Optional. Used by Luce's conservation-law machinery. Free-form;
+          common values: budget, schedule, creative-direction, reputation.
+        examples: [budget, schedule, creative-direction]
+
+examples:
+  - id: 01HXAA9ABCDEF12345NOPQR
+    type: decision
+    created_at: 2026-05-04T15:52:00Z
+    author: person:omniscia
+    audience: [project]
+    classification: project-internal
+    decision: "Converge Luce, TWIN, and Bower on a five-layer shared substrate (L0-L4)."
+    context: |
+      Three independently-conceived applications converge on overlapping
+      primitives: typed entities, relationships, decisions accreting via git
+      history, audience-controlled access, sovereign compute. All three are
+      pre-build (zero production data). Decision moment exists; sunk-cost
+      defense doesn't apply.
+    options_considered:
+      - id: a
+        description: Stay split — each app picks its own backend per local optimization.
+        pros: [No architectural commitment, each stack optimized for its query pattern]
+        cons: [3x sovereign-AI plumbing, 3x ETL adapters, 3x audit/observability, single-vendor risk for Luce]
+      - id: b
+        description: Converge on graph-first (Neo4j+Graphiti for everything).
+        pros: [Strong queries everywhere]
+        cons: [Breaks heir-readable property, breaks decadal durability]
+      - id: c
+        description: Converge on substrate-first (markdown+git authoritative, Graphiti derived).
+        pros: [Build-once mental model, decadal durability, heir-readable]
+        cons: [L1->L3 sync engineering, slight derived-index staleness]
+      - id: d
+        description: Five-layer architecture (chosen) — explicit L0/L1/L2/L3/L4 with shared L0/L1/L3 and per-app L2/L4.
+        pros: [Same as c, plus explicit treatment of sovereign-compute as shared infra and per-app L2 sizing]
+        cons: [More architectural surface to document]
+    choice: d
+    rationale: |
+      Three pre-build specs converging is a rare moment — pure architecture
+      decision, no migration cost. Substrate-first model is more durable than
+      graph-first, applies equally to Luce. Five-layer split handles per-app
+      scaling at L2 without forcing common infrastructure on different volume
+      profiles.
+    downstream_effects:
+      - "Luce migrates data layer to L1+L2 split (Neo4j scoped to L3 substrate)"
+      - "TWIN-V1 repositioned as multi-consumer substrate"
+      - "Bower's MLS chat layer becomes L4 application on shared substrate"
+      - "Sovereign-compute config consolidates in shared L0"
+    state: ratified
+    committers: [person:omniscia, person:rjwalters]

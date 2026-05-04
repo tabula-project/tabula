@@ -1,0 +1,86 @@
+$schema: https://json-schema.org/draft/2020-12/schema
+$id: https://tabula-project.org/schema/v1/types/observation.yaml
+title: Tabula Observation
+description: |
+  General-purpose record for a noted thing. The default type for ETL imports
+  (claude-mem, gt-memory, conversation logs) and for distilled patterns
+  promoted from L2 operational logs to L1 substrate.
+
+  An observation is a fact, claim, or noticed pattern that the author found
+  worth recording. Less structured than a decision; not a transient event.
+
+allOf:
+  - $ref: ../frontmatter-base.yaml
+  - type: object
+    properties:
+      type:
+        const: observation
+
+    required:
+      - title
+      - body_summary
+
+    properties:
+      title:
+        type: string
+        description: Short headline (one line, < 100 chars).
+
+      body_summary:
+        type: string
+        description: |
+          One-paragraph summary of the observation. The full content lives in
+          the markdown body; this field is for graph-layer surfacing without
+          decrypting the body.
+
+      observed_at:
+        type: string
+        format: date-time
+        description: |
+          When the observation occurred or was first noticed. Distinct from
+          created_at, which is when the record was written.
+
+      confidence:
+        type: string
+        enum: [observed, inferred, speculative]
+        default: observed
+        description: |
+          Epistemic class.
+          - observed: directly witnessed or measured
+          - inferred: deduced from other evidence
+          - speculative: hypothesis worth tracking but not yet confirmed
+
+      pattern_count:
+        type: [integer, "null"]
+        description: |
+          For distilled patterns from L2 (e.g., "Day 3 shots have 2x retake
+          rate"), how many supporting events were aggregated. null for
+          single-instance observations.
+
+      supersedes_observations:
+        type: array
+        description: |
+          Other observation record IDs that this one updates or refines.
+          Convention: when a pattern is restated with new data, supersede
+          the prior summary rather than append.
+        items: {type: string, pattern: ^[0-9A-HJKMNP-TV-Z]{26}$}
+
+examples:
+  - id: 01HXBB123456789ABCDEFG
+    type: observation
+    created_at: 2026-05-04T17:30:00Z
+    author: agent:luce-shadow-learning
+    audience: [project]
+    classification: project-internal
+    title: "Day 3 shots have ~2x retake rate vs other days"
+    body_summary: |
+      Across Eve production days 1-12, shots filmed on Day 3 (location:
+      quarry, baroque sequence) have an average of 2.1 retakes vs 1.0 for
+      shots from other days. Sample size: 47 Day-3 shots vs 312 non-Day-3.
+    observed_at: 2026-05-04T17:30:00Z
+    confidence: observed
+    pattern_count: 359
+    entities:
+      - production:eve
+      - sequence:eve-day3-baroque
+      - location:florence-quarry
+    tags: [production-pattern, retake-rate, day-3]

@@ -1,0 +1,125 @@
+$schema: https://json-schema.org/draft/2020-12/schema
+$id: https://tabula-project.org/schema/v1/types/conversation.yaml
+title: Tabula Conversation
+description: |
+  A captured exchange — chat thread, email thread, meeting transcript. The
+  output of L2 ingestion adapters distilling raw messages into a coherent
+  conversation record.
+
+  Conversations are L1 substrate when they're worth keeping for long-term
+  recall. The raw messages live in L2 operational logs; this type captures
+  the durable summary plus structured metadata for graph queries.
+
+allOf:
+  - $ref: ../frontmatter-base.yaml
+  - type: object
+    properties:
+      type:
+        const: conversation
+
+    required:
+      - title
+      - participants
+      - started_at
+
+    properties:
+      title:
+        type: string
+        description: Short headline (one line, < 100 chars).
+
+      participants:
+        type: array
+        description: Person canonical IDs in the exchange.
+        items: {type: string, pattern: ^person:[a-z0-9-]+$}
+        minItems: 1
+
+      started_at:
+        type: string
+        format: date-time
+
+      ended_at:
+        type: [string, "null"]
+        format: date-time
+        description: |
+          Null for ongoing conversations. Set when the thread is dormant or
+          formally closed.
+
+      platform:
+        type: string
+        description: |
+          Source platform / channel.
+        examples: [signal, telegram, slack, email, in-person, video-call]
+
+      message_count:
+        type: integer
+        minimum: 0
+        description: Number of source messages aggregated into this record.
+
+      summary:
+        type: string
+        description: |
+          Distilled summary — what was discussed, what was decided, what's
+          unresolved. Enables graph-layer surfacing without decrypting body.
+
+      decisions_made:
+        type: array
+        description: Decision record IDs that emerged from this conversation.
+        items: {type: string, pattern: ^[0-9A-HJKMNP-TV-Z]{26}$}
+
+      action_items:
+        type: array
+        description: |
+          Free-form action items extracted from the conversation. Light-
+          weight; for tracked work, create separate project/task records.
+        items:
+          type: object
+          required: [text]
+          properties:
+            text: {type: string}
+            owner: {type: string, pattern: ^person:[a-z0-9-]+$}
+            due: {type: [string, "null"], format: date}
+            done: {type: boolean, default: false}
+
+      raw_l2_refs:
+        type: array
+        description: |
+          References to the raw L2 operational log entries this conversation
+          was distilled from. URI-like; resolution is L2-implementation-
+          specific.
+        items: {type: string}
+        examples:
+          - [signal-cli://msg/1777909969990, signal-cli://msg/1777932404997]
+
+examples:
+  - id: 01HXCC9CONVTABULA
+    type: conversation
+    created_at: 2026-05-05T01:00:00Z
+    author: agent:twin-distillation
+    audience: [project]
+    classification: project-internal
+    title: "Tabula architecture convergence — substrate vs application split"
+    participants: [person:omniscia, person:rjwalters]
+    started_at: 2026-05-04T15:17:00Z
+    ended_at: 2026-05-04T19:53:00Z
+    platform: signal
+    message_count: 89
+    summary: |
+      Synthesis conversation establishing the Tabula five-layer architecture.
+      omniscia drafted layered model (L0-L4); rjwalters added the Sleep API
+      concept and created tabula-project/tabula repo with full SPEC.md.
+      Founding stewards proposed: omniscia (TWIN), Vivake/Good Studios (Luce),
+      rjwalters (Bower). Schema vocabulary, governance, and license decided
+      in this thread.
+    decisions_made:
+      - 01HXAA9ABCDEF12345NOPQR  # Five-layer convergence decision
+    action_items:
+      - text: "rjwalters adds @omniscia as collaborator on tabula-project/tabula"
+        owner: person:rjwalters
+      - text: "omniscia contributes schema/v1/types/*.yaml for the 9 v1 content types"
+        owner: person:omniscia
+      - text: "omniscia drafts docs/l0-routing.md (privacy class enforcement)"
+        owner: person:omniscia
+    entities:
+      - project:tabula
+      - org:tabula-project
+    tags: [substrate-architecture, founding-conversation, tabula-v0]

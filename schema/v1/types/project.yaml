@@ -1,0 +1,98 @@
+$schema: https://json-schema.org/draft/2020-12/schema
+$id: https://tabula-project.org/schema/v1/types/project.yaml
+title: Tabula Project
+description: |
+  A long-arc undertaking. A coordinated set of decisions, events, and
+  participants pursuing a defined outcome over weeks-to-years.
+
+  Distinct from `event` (single moment) and `tool` (artifact). Projects can
+  contain other projects (sub-projects) via relations.
+
+allOf:
+  - $ref: ../frontmatter-base.yaml
+  - type: object
+    properties:
+      type:
+        const: project
+
+    required:
+      - canonical_id
+      - title
+      - goal
+
+    properties:
+      canonical_id:
+        type: string
+        pattern: ^project:[a-z0-9-]+$
+        description: Stable entity ID. Matches filename slug.
+
+      title:
+        type: string
+        description: Display name.
+
+      goal:
+        type: string
+        description: What this project is trying to accomplish, in one sentence.
+
+      state:
+        type: string
+        enum: [proposed, planning, active, paused, completed, cancelled, archived]
+        default: active
+
+      owner:
+        type: string
+        pattern: ^person:[a-z0-9-]+$
+        description: Person canonical ID of the primary owner.
+
+      participants:
+        type: array
+        description: Other people meaningfully involved.
+        items: {type: string, pattern: ^person:[a-z0-9-]+$}
+
+      started:
+        type: string
+        format: date
+        description: When work began (or is planned to begin if state=proposed).
+
+      target_completion:
+        type: [string, "null"]
+        format: date
+
+      actual_completion:
+        type: [string, "null"]
+        format: date
+
+      sub_projects:
+        type: array
+        description: Project canonical IDs nested under this one.
+        items: {type: string, pattern: ^project:[a-z0-9-]+$}
+
+      org:
+        type: [string, "null"]
+        pattern: ^org:[a-z0-9-]+$
+        description: |
+          Organizational ownership. Null for personal projects. Examples:
+          org:maj-foundation, org:good-studios, org:tabula-project, org:family.
+
+      kind:
+        type: string
+        description: |
+          Free-form classifier. Common: research, build, move, learn, write,
+          relationship, business, infrastructure.
+
+examples:
+  - id: 01HXAA9PROJTABULA
+    type: project
+    created_at: 2026-05-04T17:55:00Z
+    author: person:rjwalters
+    audience: [public]
+    canonical_id: project:tabula
+    title: "Tabula — sovereign-AI common core"
+    goal: "Provide L0/L1/L3 substrate for TWIN, Luce, Bower, and future sovereign-substrate consumers."
+    state: active
+    owner: person:rjwalters
+    participants: [person:omniscia, person:rjwalters]
+    started: 2026-05-04
+    org: org:tabula-project
+    kind: infrastructure
+    tags: [substrate, sovereign-ai, oss, apache-2.0]

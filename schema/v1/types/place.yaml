@@ -1,0 +1,84 @@
+$schema: https://json-schema.org/draft/2020-12/schema
+$id: https://tabula-project.org/schema/v1/types/place.yaml
+title: Tabula Place
+description: |
+  Meaningful geography — a home, studio, base, frequented location, or planned
+  future place. Distinct from `event` (a moment) and `tool` (an artifact).
+
+allOf:
+  - $ref: ../frontmatter-base.yaml
+  - type: object
+    properties:
+      type:
+        const: place
+
+    required:
+      - canonical_id
+      - display_name
+
+    properties:
+      canonical_id:
+        type: string
+        pattern: ^location:[a-z0-9-]+$
+        description: Stable entity ID. Matches filename slug.
+
+      display_name:
+        type: string
+
+      kind:
+        type: string
+        enum: [home, studio, base, location, planned, archive]
+        description: |
+          - home: residential
+          - studio: working space (production, office)
+          - base: temporary recurring (e.g., Istanbul flat for Q2 work)
+          - location: a place referenced for events but not occupied
+          - planned: future home/base under consideration
+          - archive: place that was meaningful but no longer in active use
+
+      address:
+        type: string
+        description: |
+          Free-form. Audience-tier sensitive — typically self/family. Public
+          places (Florence, generic) can be plaintext; private addresses
+          should sit in encrypted body, not frontmatter.
+
+      coordinates:
+        type: object
+        description: Optional WGS84 lat/lon for map rendering.
+        properties:
+          lat: {type: number}
+          lon: {type: number}
+
+      timezone:
+        type: string
+        examples: [Europe/Rome, Europe/Istanbul]
+
+      occupants:
+        type: array
+        description: Person canonical IDs primarily associated with this place.
+        items: {type: string, pattern: ^person:[a-z0-9-]+$}
+
+      since:
+        type: string
+        format: date
+        description: When this place became meaningful (move-in, opened, planned-from).
+
+      until:
+        type: [string, "null"]
+        format: date
+        description: When it stopped (sold, closed, transitioned to archive).
+
+examples:
+  - id: 01HXAA9PLACEFLO
+    type: place
+    created_at: 2026-05-04T18:00:00Z
+    author: person:omniscia
+    audience: [family, project]
+    canonical_id: location:florence-studio
+    display_name: Good Studios — Florence
+    kind: studio
+    timezone: Europe/Rome
+    occupants: [person:omniscia, person:charles]
+    since: 2024-09-01
+    tags: [good-studios, primary-studio, post-production]

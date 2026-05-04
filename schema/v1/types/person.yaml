@@ -1,0 +1,105 @@
+$schema: https://json-schema.org/draft/2020-12/schema
+$id: https://tabula-project.org/schema/v1/types/person.yaml
+title: Tabula Person
+description: |
+  Entity entry for a human in the graph. Account-holding (adults with logins)
+  or accountless (kids, deceased, third-party contacts).
+
+  A person record exists so that other records can reference them via
+  `entities: [person:<id>]`. The id should be stable; renames go in supersedes
+  not by mutation.
+
+allOf:
+  - $ref: ../frontmatter-base.yaml
+  - type: object
+    properties:
+      type:
+        const: person
+
+    required:
+      - canonical_id
+      - display_name
+
+    properties:
+      canonical_id:
+        type: string
+        pattern: ^person:[a-z0-9-]+$
+        description: |
+          The canonical entity ID. Used in other records' `entities` and
+          `relations`. Should match the slug part of this record's filename
+          (e.g., person:rjwalters → persons/rjwalters.md).
+
+      display_name:
+        type: string
+        description: |
+          The name to use when rendering. May be a handle (rjwalters), a
+          chosen name (omniscia), or a real name where appropriate. Real
+          names are subject to the consumer's privacy policy.
+
+      role:
+        type: string
+        description: |
+          Free-form. Common: spouse, child, parent, co-founder, advisor,
+          collaborator, vendor, friend.
+        examples: [spouse, co-founder, collaborator]
+
+      account_holder:
+        type: boolean
+        default: false
+        description: |
+          True if this person logs in to the consumer application. Bower
+          example: adults are account_holders, kids are not. Sets
+          permissions on writes.
+
+      accounts:
+        type: array
+        description: |
+          External account references. Free-form key-value (platform → handle).
+        items:
+          type: object
+          properties:
+            platform: {type: string, examples: [github, signal, telegram, slack, email]}
+            handle: {type: string}
+            verified: {type: boolean, default: false}
+
+      timezone:
+        type: string
+        description: IANA timezone identifier.
+        examples: [Europe/Rome, America/Los_Angeles]
+
+      birth_date:
+        type: string
+        format: date
+        description: |
+          ISO date. Audience-tier sensitive — typically family or self only.
+
+      death_date:
+        type: [string, "null"]
+        format: date
+        description: |
+          ISO date. When set, downstream agents should respect posthumous-
+          release triggers on records authored by or about this person.
+
+      notes:
+        type: string
+        description: Free-form context. The body is for longer narrative.
+
+examples:
+  - id: 01HXAA9PERSONROBB
+    type: person
+    created_at: 2026-05-04T15:00:00Z
+    author: person:omniscia
+    audience: [project, family]
+    canonical_id: person:rjwalters
+    display_name: Robb Walters
+    role: co-founder
+    account_holder: true
+    accounts:
+      - platform: github
+        handle: rjwalters
+        verified: true
+      - platform: signal
+        handle: "+16264834952"
+        verified: true
+    timezone: America/Los_Angeles
+    tags: [steward, 2am-logic-studio, bower-lead, botho-lead]

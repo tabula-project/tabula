@@ -1,0 +1,93 @@
+$schema: https://json-schema.org/draft/2020-12/schema
+$id: https://tabula-project.org/schema/v1/types/tool.yaml
+title: Tabula Tool
+description: |
+  A script, command, or invocable artifact the agent (or human) uses. Tracked
+  as a substrate record so that other records can reference it via
+  `entities: [tool:<id>]` and so the tool's evolution is auditable.
+
+  Distinct from external software (use `external_ids` for that). A `tool`
+  record represents something the consumer authors and maintains, even if
+  it wraps an external service.
+
+allOf:
+  - $ref: ../frontmatter-base.yaml
+  - type: object
+    properties:
+      type:
+        const: tool
+
+    required:
+      - canonical_id
+      - name
+      - invocation
+
+    properties:
+      canonical_id:
+        type: string
+        pattern: ^tool:[a-z0-9-]+$
+
+      name:
+        type: string
+        description: Display name.
+
+      invocation:
+        type: string
+        description: |
+          How the tool is invoked. Free-form. Examples:
+          - `bash: scripts/build-corpus.sh`
+          - `python: -m sovereign.warm gpt-oss-120b`
+          - `mcp: kitsu_list_tasks_for_shot`
+
+      kind:
+        type: string
+        enum: [script, mcp_tool, cli_command, agent, capability]
+        description: |
+          - script: a runnable file in the consumer repo
+          - mcp_tool: exposed via MCP for agents to call
+          - cli_command: external command the consumer wraps
+          - agent: a sub-agent (LangGraph node, Claude subagent, etc.)
+          - capability: a logical capability that may have multiple implementations
+
+      coupling_weight:
+        type: number
+        minimum: 0
+        maximum: 1
+        description: |
+          Optional. Used by Luce's shadow-learning middleware to control
+          observation depth. 1.0 = capture every detail; 0.0 = don't observe.
+
+      privacy_class:
+        type: string
+        enum: [family_or_self, project, public]
+        description: |
+          Default privacy class for prompts/outputs flowing through this
+          tool. The L0 router enforces; consumers may override per call.
+
+      maintainer:
+        type: string
+        pattern: ^person:[a-z0-9-]+$
+
+      source_path:
+        type: string
+        description: Repo-relative path to the tool's source.
+
+      depends_on:
+        type: array
+        description: Other tools this tool calls or composes.
+        items: {type: string, pattern: ^tool:[a-z0-9-]+$}
+
+examples:
+  - id: 01HXBBTOOLSOVWARM
+    type: tool
+    created_at: 2026-05-04T18:00:00Z
+    author: person:omniscia
+    audience: [public]
+    canonical_id: tool:sovereign-warm
+    name: "sovereign warm"
+    invocation: "python -m sovereign.warm <model> --ttl <seconds> --reason <text>"
+    kind: cli_command
+    privacy_class: project
+    maintainer: person:omniscia
+    source_path: src/sovereign/warm.py
+    tags: [l0, sovereign-compute, sleep-api]
