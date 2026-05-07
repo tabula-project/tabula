@@ -1,9 +1,16 @@
 """``tabula enclave`` subcommands.
 
-This module currently implements the ``down`` teardown subcommand (issue
-#28). The ``up`` provisioning subcommand (issue #26) is referenced by the
-shared :mod:`tabula_cli._enclave_state` schema and will be wired into the
-same argparse group when its PR lands.
+This package currently implements the ``down`` teardown subcommand (issue
+#28) and the ``ssh`` subcommand (issue #33). The ``up`` provisioning
+subcommand (issue #26) is referenced by the shared
+:mod:`tabula_cli._enclave_state` schema and will be wired into the same
+argparse group when its PR lands.
+
+Subcommand modules:
+
+* :mod:`tabula_cli.enclave.ssh`    — IAP-tunneled shell (issue #33)
+* :mod:`tabula_cli.enclave.up`     — provision (issue #26, pending)
+* :mod:`tabula_cli.enclave.status` — current state (issue #30, pending)
 
 Key invariants for ``down``:
 
@@ -19,7 +26,7 @@ Key invariants for ``down``:
   enclave is a clean no-op (terraform destroy reports nothing to do,
   verification returns no leftovers, state dir is removed).
 
-Exit codes:
+Exit codes (``down``):
 
 * ``0`` — clean teardown (or clean idempotent no-op)
 * ``1`` — user error (bad name, missing state without ``--force``)
@@ -349,6 +356,8 @@ def enclave_down(opts: DownOptions) -> int:  # noqa: C901 — top-level orchestr
 
 def add_subparser(subparsers: argparse._SubParsersAction) -> None:
     """Register the ``enclave`` subcommand group on a top-level parser."""
+    from tabula_cli.enclave import ssh as ssh_mod
+
     p = subparsers.add_parser(
         "enclave",
         help="Manage Tabula enclaves (one-command lifecycle).",
@@ -391,6 +400,9 @@ def add_subparser(subparsers: argparse._SubParsersAction) -> None:
         help="GCP project id (required with --force when state is missing).",
     )
 
+    # `ssh` --------------------------------------------------------------- #
+    ssh_mod.add_subparser(sub)
+
 
 def run(args: argparse.Namespace) -> int:
     """Dispatch the parsed ``enclave`` subcommand."""
@@ -402,5 +414,9 @@ def run(args: argparse.Namespace) -> int:
             project=args.project,
         )
         return enclave_down(opts)
+    if args.enclave_cmd == "ssh":
+        from tabula_cli.enclave import ssh as ssh_mod
+
+        return ssh_mod.run(args)
     _emit(f"error: unknown enclave subcommand: {args.enclave_cmd}", err=True)
     return EXIT_USER_ERROR
