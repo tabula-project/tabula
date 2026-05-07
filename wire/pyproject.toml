@@ -1,7 +1,7 @@
 [project]
 name = "tabula-wire"
 version = "0.1.0"
-description = "Tabula transport: Noise-XX wire protocol, static-key tooling, and the `tabula` CLI."
+description = "Tabula transport: Noise-XX wire protocol, static-key tooling, protobuf schema, and the `tabula` CLI."
 readme = "README.md"
 requires-python = ">=3.12"
 license = { text = "Apache-2.0" }
@@ -19,12 +19,22 @@ dependencies = [
   # Pure-Python Noise Protocol Framework — drives the XX state machine in
   # ``tabula_wire.crypto.noise_xx`` (#18). Pinned to 0.34.x; review before bumping.
   "dissononce>=0.34.3,<0.35",
+  # protobuf >=7.34 is required because protoc 34.1 emits gencode that
+  # depends on the v7 runtime API. See wire/proto/README.md for the
+  # version policy.
+  "protobuf>=7.34",
 ]
 
 [project.optional-dependencies]
 test = [
   "pytest>=8.0",
   "pytest-asyncio>=0.23.0",
+]
+dev = [
+  # Tooling for regenerating wire/src/tabula_wire/proto/v1/chat_pb2.{py,pyi}
+  # via wire/proto/build.sh. Not required at runtime.
+  "grpcio-tools>=1.66",
+  "mypy-protobuf>=3.6",
 ]
 
 [project.scripts]
@@ -36,6 +46,13 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/tabula_wire"]
+
+# Ensure generated protobuf bindings (*_pb2.py / *_pb2.pyi) are shipped
+# in the wheel. Hatchling does not include them automatically because
+# they are regenerated artifacts; force-include them explicitly.
+[tool.hatch.build.targets.wheel.force-include]
+"src/tabula_wire/proto/v1/chat_pb2.py" = "tabula_wire/proto/v1/chat_pb2.py"
+"src/tabula_wire/proto/v1/chat_pb2.pyi" = "tabula_wire/proto/v1/chat_pb2.pyi"
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

@@ -1,6 +1,6 @@
-"""Round-trip serialize/deserialize tests for tabula.wire.v1.
+"""Round-trip serialize/deserialize tests for tabula_wire.proto.v1.
 
-For each variant of the `ClientFrame` and `ServerFrame` `oneof payload`,
+For each variant of the ``ClientFrame`` and ``ServerFrame`` ``oneof payload``,
 we build the message, serialize to bytes via protobuf, deserialize, and
 assert the decoded message is byte-equal to the original.
 
@@ -11,18 +11,9 @@ live with the server/client implementations (see parent epic #13).
 
 from __future__ import annotations
 
-import pathlib
-import sys
-
-# Make `tabula.wire.v1` importable when running pytest from the repo root.
-# Generated bindings live in wire/proto/gen/.
-_GEN_DIR = pathlib.Path(__file__).resolve().parents[1] / "gen"
-if str(_GEN_DIR) not in sys.path:
-    sys.path.insert(0, str(_GEN_DIR))
-
 import pytest
 
-from tabula.wire.v1 import (  # noqa: E402
+from tabula_wire.proto.v1 import (
     PROTOCOL_VERSION,
     AssistantToken,
     AssistantTurnEnd,
