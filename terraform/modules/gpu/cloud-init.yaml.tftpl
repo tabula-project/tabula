@@ -1,0 +1,50 @@
+#cloud-config
+# tabula GPU VM — issue #35.
+#
+# This file is rendered by Terraform's templatefile() (see main.tf in this
+# module) before being attached to the GCE instance as user-data. The only
+# Terraform substitution is the bootstrap_script body, which is read from
+# bootstrap.sh in this directory. All per-enclave configuration reaches
+# bootstrap.sh through GCE instance metadata attributes (see main.tf), NOT
+# through this template — that keeps cloud-init validatable in isolation.
+#
+# Re-runs are safe: bootstrap.sh's sentinel file makes first-boot vs. wake
+# idempotent. cloud-init only runs `runcmd` once per boot by default; that
+# is exactly what we want — bootstrap.sh handles the fast path internally.
+
+write_files:
+  - path: /opt/tabula/bootstrap.sh
+    permissions: '0750'
+    owner: root:root
+    content: |
+      ${indent(6, bootstrap_script)}
+
+  - path: /etc/logrotate.d/tabula-bootstrap
+    permissions: '0644'
+    owner: root:root
+    content: |
+      /var/log/tabula-bootstrap.log {
+        weekly
+        rotate 8
+        compress
+        missingok
+        notifempty
+        copytruncate
+      }
+
+# Ensure required directories exist before any runcmd, then run bootstrap.sh.
+# The script reads its parameters from instance metadata at runtime, so this
+# cloud-init body is the same for every enclave.
+runcmd:
+  - [ install, -d, -m, '0755', /opt/tabula ]
+  - [ install, -d, -m, '0755', /run/tabula ]
+  - [ /opt/tabula/bootstrap.sh ]
+
+# Stream all cloud-init output to the same log file the bootstrap uses, so
+# operators have one place to look. Cloud-init also writes its own log to
+# /var/log/cloud-init-output.log; we tee for convenience.
+output:
+  all: '| tee -a /var/log/tabula-bootstrap.log'
+
+# Final reboot is NOT required — bootstrap.sh starts the systemd unit
+# directly. Leaving power_state unset is intentional.
