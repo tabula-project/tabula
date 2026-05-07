@@ -1,7 +1,7 @@
 [project]
 name = "tabula-wire"
 version = "0.1.0"
-description = "Tabula transport: Noise-XX wire protocol, static-key tooling, protobuf schema, and the `tabula` CLI."
+description = "Tabula transport: Noise-XX wire protocol, static-key tooling, and protobuf schema."
 readme = "README.md"
 requires-python = ">=3.12"
 license = { text = "Apache-2.0" }
@@ -36,9 +36,6 @@ dev = [
   "grpcio-tools>=1.66",
   "mypy-protobuf>=3.6",
 ]
-
-[project.scripts]
-tabula = "tabula_wire.cli:main"
 
 [build-system]
 requires = ["hatchling"]
