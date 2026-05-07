@@ -1,0 +1,63 @@
+name: integration-e2e
+
+# Localhost e2e integration test for the chat MVP demo (issue #34).
+#
+# Runs the harness unit tests on every PR (always) plus the full e2e flow
+# whenever the canonical `tabula_wire` / `tabula_cli` distributions are
+# importable. Until the wire-stack sub-issues land (#16, #18, #20, #22, #25,
+# #27, #29, #31, #32) the e2e tests skip cleanly — the job still passes so we
+# can keep the harness building on every PR without blocking unrelated work.
+#
+# `TABULA_E2E_REAL_CLAUDE` is intentionally never set in CI: the real `claude`
+# CLI is opt-in for local dev only. CI runs only the deterministic
+# fake-claude path.
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  pytest:
+    name: integration tests (fake-claude only)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install test deps
+        run: |
+          python -m pip install --upgrade pip
+          pip install pytest pytest-asyncio cryptography
+
+      - name: Install wire / cli (best-effort)
+        # When the canonical distributions are present in-tree, install them
+        # so the e2e tests run. If they are not yet on `main` (the dependency
+        # chain is still in flight) this step is a no-op and the e2e tests
+        # below skip with a clear reason.
+        run: |
+          if [[ -f wire/pyproject.toml ]]; then
+            pip install -e wire
+          fi
+          if [[ -f cli/pyproject.toml ]]; then
+            pip install -e cli
+          fi
+
+      - name: Run integration tests
+        env:
+          # Explicitly NOT set: TABULA_E2E_REAL_CLAUDE
+          PYTHONUNBUFFERED: "1"
+        run: |
+          pytest tests/integration -v -ra
+
+      - name: Run shell-based CLI e2e (best-effort)
+        # The shell-driven flavor exits 0 with a SKIP line when the CLI is
+        # not yet installed; once cli/ lands it runs the same flow as the
+        # pytest-driven equivalent.
+        run: |
+          bash tests/integration/test_cli_e2e.sh
