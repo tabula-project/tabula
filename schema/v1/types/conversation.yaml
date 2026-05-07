@@ -13,16 +13,15 @@ description: |
 allOf:
   - $ref: ../frontmatter-base.yaml
   - type: object
-    properties:
-      type:
-        const: conversation
-
     required:
       - title
       - participants
       - started_at
 
     properties:
+      type:
+        const: conversation
+
       title:
         type: string
         description: Short headline (one line, < 100 chars).

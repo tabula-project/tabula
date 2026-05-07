@@ -13,16 +13,15 @@ description: |
 allOf:
   - $ref: ../frontmatter-base.yaml
   - type: object
-    properties:
-      type:
-        const: tool
-
     required:
       - canonical_id
       - name
       - invocation
 
     properties:
+      type:
+        const: tool
+
       canonical_id:
         type: string
         pattern: ^tool:[a-z0-9-]+$

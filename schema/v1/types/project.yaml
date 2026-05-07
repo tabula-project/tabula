@@ -11,16 +11,15 @@ description: |
 allOf:
   - $ref: ../frontmatter-base.yaml
   - type: object
-    properties:
-      type:
-        const: project
-
     required:
       - canonical_id
       - title
       - goal
 
     properties:
+      type:
+        const: project
+
       canonical_id:
         type: string
         pattern: ^project:[a-z0-9-]+$

@@ -12,15 +12,14 @@ description: |
 allOf:
   - $ref: ../frontmatter-base.yaml
   - type: object
-    properties:
-      type:
-        const: person
-
     required:
       - canonical_id
       - display_name
 
     properties:
+      type:
+        const: person
+
       canonical_id:
         type: string
         pattern: ^person:[a-z0-9-]+$

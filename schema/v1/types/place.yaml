@@ -8,15 +8,14 @@ description: |
 allOf:
   - $ref: ../frontmatter-base.yaml
   - type: object
-    properties:
-      type:
-        const: place
-
     required:
       - canonical_id
       - display_name
 
     properties:
+      type:
+        const: place
+
       canonical_id:
         type: string
         pattern: ^location:[a-z0-9-]+$
