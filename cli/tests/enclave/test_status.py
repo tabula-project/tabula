@@ -30,7 +30,7 @@ from unittest import mock
 
 import pytest
 
-from tabula_cli._enclave_state import (
+from tabula_cli.state import (
     EnclaveState,
     StateNotFoundError,
     StateVersionError,

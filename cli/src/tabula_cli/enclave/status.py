@@ -83,7 +83,7 @@ from typing import Any, Callable, Optional
 
 import typer
 
-from tabula_cli._enclave_state import (
+from tabula_cli.state import (
     EnclaveState,
     StateCorruptError,
     StateError,
