@@ -1,16 +1,17 @@
-"""tabula-cli — user-facing CLI for the Tabula enclave lifecycle.
+"""tabula-cli -- user-facing CLI for the Tabula enclave lifecycle.
 
 Subcommands (current):
 
-* ``tabula enclave down <name>`` — tear an enclave down to zero residual cost.
+* ``tabula enclave up   <name>`` -- provision an enclave (issue #26).
+* ``tabula enclave down <name>`` -- tear an enclave down to zero residual cost
+  (issue #28).
 
 Subcommands (planned, not yet implemented in this package):
 
-* ``tabula enclave up <name>`` — provision an enclave (issue #26)
-* ``tabula enclave status <name>`` — health check (issue #30)
-* ``tabula enclave ssh <name> {classifier|gpu|gitea}`` — IAP-tunneled shell (issue #33)
+* ``tabula enclave status <name>`` -- health check (issue #30)
+* ``tabula enclave ssh <name> {classifier|gpu|gitea}`` -- IAP-tunneled shell (issue #33)
 
-The :mod:`tabula_cli._enclave_state` module is the **shared schema** for the
+The :mod:`tabula_cli._enclave_state` module is the shared schema for the
 on-disk per-enclave state file. ``up`` writes it, ``down`` reads it. The
 schema is versioned (``version: 1``); see that module's docstring for the
 contract.

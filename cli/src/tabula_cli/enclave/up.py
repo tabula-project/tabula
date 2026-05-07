@@ -1,0 +1,378 @@
+"""``tabula enclave up`` subcommand (issue #26).
+
+Provisions (or re-applies) a Tabula enclave by driving the
+``terraform/enclave/`` root module. Idempotent: re-running on an existing
+enclave prints current status and asks before re-applying. ``--yes`` skips
+the prompt for scripting.
+
+Exit codes (per #26 acceptance criteria):
+
+- 0: success
+- 2: validation error (bad name, bad flag, wrong schema version on disk)
+- 3: terraform invocation failed
+- 4: GCP application-default credentials missing
+"""
+
+from __future__ import annotations
+
+import logging
+import os
+import shutil
+import subprocess
+from pathlib import Path
+from typing import Optional
+
+import typer
+
+from tabula_cli import _enclave_state as state_mod
+from tabula_cli import _terraform as tf
+
+# Exit codes are part of the public contract; keep stable.
+EXIT_OK = 0
+EXIT_VALIDATION = 2
+EXIT_TERRAFORM = 3
+EXIT_AUTH = 4
+
+logger = logging.getLogger("tabula_cli.enclave.up")
+
+
+# --------------------------------------------------------------------------- #
+# Helpers                                                                     #
+# --------------------------------------------------------------------------- #
+
+
+def _terraform_root_module() -> Path:
+    """Return the path to the ``terraform/enclave/`` root module.
+
+    The CLI ships alongside the substrate repo; the root module lives at the
+    repo root in ``terraform/enclave/``. We resolve relative to this file so
+    ``pip install -e cli`` from the repo root still finds it. The
+    ``TABULA_TERRAFORM_ROOT`` env var overrides for tests and out-of-tree
+    installs.
+    """
+    override = os.environ.get("TABULA_TERRAFORM_ROOT")
+    if override:
+        return Path(override).expanduser().resolve()
+
+    # cli/src/tabula_cli/enclave/up.py -> ../../../../terraform/enclave
+    here = Path(__file__).resolve()
+    return here.parents[4] / "terraform" / "enclave"
+
+
+def _detect_default_project() -> Optional[str]:
+    """Best-effort: ``gcloud config get-value project``.
+
+    Returns ``None`` if ``gcloud`` is missing or the value is unset/blank.
+    """
+    if shutil.which("gcloud") is None:
+        return None
+    try:
+        out = subprocess.run(
+            ["gcloud", "config", "get-value", "project"],
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=5,
+        )
+    except (subprocess.TimeoutExpired, OSError):
+        return None
+    if out.returncode != 0:
+        return None
+    candidate = (out.stdout or "").strip()
+    # gcloud may print "(unset)" when no project is configured.
+    if not candidate or candidate.lower() == "(unset)":
+        return None
+    return candidate
+
+
+def _adc_present() -> bool:
+    """Return True iff GCP application-default credentials look available.
+
+    Mirrors the lookup order used by Google Cloud client libraries: explicit
+    ``GOOGLE_APPLICATION_CREDENTIALS`` env var first, then the well-known
+    ADC path under ``~/.config/gcloud``.
+    """
+    explicit = os.environ.get("GOOGLE_APPLICATION_CREDENTIALS")
+    if explicit and Path(explicit).expanduser().exists():
+        return True
+    well_known = (
+        Path.home() / ".config" / "gcloud" / "application_default_credentials.json"
+    )
+    return well_known.exists()
+
+
+def _write_tfvars(target_dir: Path, *, project_id: str, region: str, name: str) -> Path:
+    """Render a minimal ``terraform.tfvars`` for the enclave root module."""
+    target_dir.mkdir(parents=True, exist_ok=True)
+    tfvars = target_dir / "terraform.tfvars"
+    payload = (
+        f'project_id   = "{project_id}"\n'
+        f'region       = "{region}"\n'
+        f'enclave_name = "{name}"\n'
+    )
+    tfvars.write_text(payload, encoding="utf-8")
+    return tfvars
+
+
+def _materialize_workdir(name: str, *, project_id: str, region: str) -> Path:
+    """Prepare the per-enclave working directory and return its terraform dir.
+
+    Layout produced::
+
+        ~/.tabula/enclaves/<name>/
+            terraform.tfvars     (the canonical, user-visible vars file)
+            terraform/           (a copy of the root module so each enclave
+                                  has its own .terraform/ + state)
+                main.tf
+                ...
+                terraform.tfvars (a copy of the parent so terraform auto-loads)
+
+    We copy rather than symlink the root module so the per-enclave dir is
+    self-contained and survives a CLI upgrade or repo move.
+    """
+    src = _terraform_root_module()
+    if not src.is_dir():
+        raise FileNotFoundError(
+            f"terraform root module not found at {src}; "
+            "set TABULA_TERRAFORM_ROOT or run from a Tabula checkout"
+        )
+
+    workdir = state_mod.enclave_dir(name)
+    workdir.mkdir(parents=True, exist_ok=True)
+    tf_dir = workdir / "terraform"
+
+    if not tf_dir.exists():
+        # First run: copy the entire root module tree (excluding any local
+        # .terraform/ from the source -- that's a per-init artifact).
+        shutil.copytree(
+            src,
+            tf_dir,
+            ignore=shutil.ignore_patterns(
+                ".terraform",
+                ".terraform.lock.hcl",
+                "terraform.tfstate*",
+                "*.tfplan",
+            ),
+        )
+
+    # Generate the canonical tfvars next to state.json (operator-visible)...
+    canonical_tfvars = _write_tfvars(
+        workdir, project_id=project_id, region=region, name=name
+    )
+    # ...and mirror them into the terraform working dir so terraform auto-loads.
+    target = tf_dir / "terraform.tfvars"
+    if target.exists() or target.is_symlink():
+        target.unlink()
+    shutil.copy2(canonical_tfvars, target)
+
+    return tf_dir
+
+
+def _capture_outputs_safely(tf_dir: Path) -> dict:
+    """Best-effort terraform outputs.
+
+    The stub root module emits ``classifier_ip`` and ``noise_port`` as
+    placeholders. Real outputs land as sibling modules merge. We never let
+    an output read failure mask a successful apply -- log and return ``{}``.
+    """
+    try:
+        return tf.output_json(tf_dir)
+    except (tf.TerraformError, tf.TerraformNotFoundError, ValueError) as e:
+        logger.warning("could not read terraform outputs: %s", e)
+        return {}
+
+
+def _print_success(s: state_mod.EnclaveState) -> None:
+    """Print the human-readable success summary required by #26."""
+    classifier_ip = s.outputs.get("classifier_ip", "<pending>")
+    noise_port = s.outputs.get("noise_port", "<pending>")
+    typer.echo(f"Enclave: {s.name}")
+    typer.echo(f"  classifier IP: {classifier_ip}")
+    typer.echo(f"  Noise port:    {noise_port}")
+    typer.echo(f"  state file:    {state_mod.state_path(s.name)}")
+    typer.echo(f"  next: tabula enclave status {s.name}")
+
+
+# --------------------------------------------------------------------------- #
+# Subcommand: up                                                              #
+# --------------------------------------------------------------------------- #
+
+
+def up(
+    name: str = typer.Argument(..., help="Enclave name (DNS-safe, 3-30 chars)."),
+    project: Optional[str] = typer.Option(
+        None,
+        "--project",
+        help="GCP project ID. Defaults to `gcloud config get-value project`.",
+    ),
+    region: str = typer.Option(
+        "us-central1",
+        "--region",
+        help="GCP region for the enclave.",
+    ),
+    dry_run: bool = typer.Option(
+        False,
+        "--dry-run",
+        help="Run `terraform plan` only; print the plan and exit 0.",
+    ),
+    yes: bool = typer.Option(
+        False,
+        "--yes",
+        "-y",
+        help="Skip the re-apply confirmation prompt (CI / scripting).",
+    ),
+    verbose: bool = typer.Option(
+        False,
+        "--verbose",
+        "-v",
+        help="Stream terraform stdout/stderr live instead of summarizing.",
+    ),
+) -> None:
+    """Provision (or re-apply) the enclave named ``name``.
+
+    Idempotent: re-running on an existing enclave prints current status and
+    asks before re-applying. ``--yes`` skips the prompt for scripting.
+    """
+    logging.basicConfig(
+        level=logging.DEBUG if verbose else logging.INFO,
+        format="%(message)s",
+    )
+
+    # 1) Validate name first -- cheapest failure mode.
+    try:
+        state_mod.validate_enclave_name(name)
+    except state_mod.EnclaveNameError as e:
+        typer.echo(f"error: {e}", err=True)
+        raise typer.Exit(code=EXIT_VALIDATION) from None
+
+    # 2) Resolve project.
+    project_id = project or _detect_default_project()
+    if not project_id:
+        typer.echo(
+            "error: no GCP project specified. Pass --project or run "
+            "`gcloud config set project <id>`.",
+            err=True,
+        )
+        raise typer.Exit(code=EXIT_VALIDATION)
+
+    # 3) ADC check before we even touch terraform -- fail fast with a clean
+    #    message rather than letting `terraform apply` blow up opaquely.
+    if not _adc_present() and not dry_run:
+        typer.echo(
+            "error: GCP application-default credentials not found. Run:\n"
+            "       gcloud auth application-default login",
+            err=True,
+        )
+        raise typer.Exit(code=EXIT_AUTH)
+
+    # 4) Existing enclave: confirm before re-applying (acceptance: idempotent
+    #    no-op-with-confirmation).
+    already_exists = state_mod.state_exists(name)
+    if already_exists and not dry_run:
+        try:
+            existing = state_mod.read_state(name)
+        except state_mod.StateSchemaError as e:
+            typer.echo(f"error: {e}", err=True)
+            raise typer.Exit(code=EXIT_VALIDATION) from None
+
+        typer.echo(
+            f"Enclave {name!r} already exists "
+            f"(project={existing.project_id}, region={existing.region}, "
+            f"created_at={existing.created_at})."
+        )
+        if not yes:
+            confirm = typer.confirm("Re-apply terraform?", default=False)
+            if not confirm:
+                typer.echo("aborted; nothing changed.")
+                raise typer.Exit(code=EXIT_OK)
+
+    # 5) Materialize the working directory and tfvars.
+    try:
+        tf_dir = _materialize_workdir(
+            name, project_id=project_id, region=region
+        )
+    except FileNotFoundError as e:
+        typer.echo(f"error: {e}", err=True)
+        raise typer.Exit(code=EXIT_VALIDATION) from None
+
+    # 6) terraform init (idempotent).
+    try:
+        tf.init(tf_dir, stream=verbose)
+    except tf.TerraformNotFoundError as e:
+        typer.echo(f"error: {e}", err=True)
+        raise typer.Exit(code=EXIT_VALIDATION) from None
+    except tf.TerraformError as e:
+        typer.echo("error: terraform init failed", err=True)
+        if e.stderr:
+            typer.echo(e.stderr, err=True)
+        raise typer.Exit(code=EXIT_TERRAFORM) from None
+
+    # 7) Plan or apply.
+    if dry_run:
+        try:
+            result = tf.plan(tf_dir, stream=verbose)
+        except tf.TerraformError as e:
+            typer.echo("error: terraform plan failed", err=True)
+            if e.stderr:
+                typer.echo(e.stderr, err=True)
+            raise typer.Exit(code=EXIT_TERRAFORM) from None
+        if not verbose and result.stdout:
+            typer.echo(result.stdout)
+        typer.echo(f"\n(dry-run) plan complete for enclave {name!r}.")
+        raise typer.Exit(code=EXIT_OK)
+
+    try:
+        tf.apply(tf_dir, stream=verbose)
+    except tf.TerraformError as e:
+        typer.echo("error: terraform apply failed", err=True)
+        if e.stderr:
+            typer.echo(e.stderr, err=True)
+        # Acceptance: leave state intact on failure.
+        raise typer.Exit(code=EXIT_TERRAFORM) from None
+
+    # 8) Capture outputs and persist state.json.
+    outputs = _capture_outputs_safely(tf_dir)
+
+    if already_exists:
+        # Preserve original created_at on re-apply; refresh outputs.
+        try:
+            existing = state_mod.read_state(name)
+            new_state = state_mod.EnclaveState(
+                name=name,
+                project_id=project_id,
+                region=region,
+                created_at=existing.created_at,
+                terraform_dir=str(tf_dir),
+                outputs=outputs,
+            )
+        except state_mod.StateSchemaError:
+            new_state = state_mod.EnclaveState(
+                name=name,
+                project_id=project_id,
+                region=region,
+                created_at=state_mod.now_utc_iso(),
+                terraform_dir=str(tf_dir),
+                outputs=outputs,
+            )
+    else:
+        new_state = state_mod.EnclaveState(
+            name=name,
+            project_id=project_id,
+            region=region,
+            created_at=state_mod.now_utc_iso(),
+            terraform_dir=str(tf_dir),
+            outputs=outputs,
+        )
+
+    state_mod.write_state(new_state)
+    _print_success(new_state)
+    raise typer.Exit(code=EXIT_OK)
+
+
+__all__ = [
+    "EXIT_AUTH",
+    "EXIT_OK",
+    "EXIT_TERRAFORM",
+    "EXIT_VALIDATION",
+    "up",
+]
