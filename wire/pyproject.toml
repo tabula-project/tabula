@@ -1,0 +1,35 @@
+[project]
+name = "tabula-wire"
+version = "0.1.0"
+description = "Tabula transport: Noise-XX wire protocol, static-key tooling, and the `tabula` CLI."
+readme = "README.md"
+requires-python = ">=3.12"
+license = { text = "Apache-2.0" }
+authors = [
+  { name = "Tabula stewards" },
+]
+classifiers = [
+  "License :: OSI Approved :: Apache Software License",
+  "Programming Language :: Python :: 3.12",
+]
+dependencies = [
+  "cryptography>=42.0",
+]
+
+[project.optional-dependencies]
+test = [
+  "pytest>=8.0",
+]
+
+[project.scripts]
+tabula = "tabula_wire.cli:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/tabula_wire"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
