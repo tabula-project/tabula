@@ -1,0 +1,56 @@
+$schema: https://json-schema.org/draft/2020-12/schema
+$id: https://tabula-project.org/schema/luce/v1/extensions/decision.yaml
+title: Tabula Decision (Luce extension)
+description: |
+  Luce-flavored extension of the core decision type. Adds the optional
+  conservation_class field used by Luce's conservation-law machinery.
+
+  This file demonstrates the **field-extension-on-core-type** pattern:
+  it composes the core decision schema (via $ref) with one or more
+  Luce-only optional fields. Validators that load this file see
+  core-required fields plus the extension's optional fields. Validators
+  that load only core never see the extension fields — but because
+  core does not currently set `additionalProperties: false`, records
+  carrying these fields still pass core validation.
+
+allOf:
+  - $ref: ../../../v1/types/decision.yaml
+  - type: object
+    properties:
+      conservation_class:
+        type: string
+        description: |
+          Used by Luce's conservation-law machinery. Free-form; common
+          values: budget, schedule, creative-direction, reputation.
+        examples: [budget, schedule, creative-direction]
+
+examples:
+  - id: 01HXBB1LUCEDECISION12345A
+    type: decision
+    created_at: 2026-05-06T12:00:00Z
+    author: person:omniscia
+    audience: [project]
+    classification: project-internal
+    decision: "Cap shot-revision rounds at three before escalating to producer."
+    context: |
+      Eve production has seen creative-direction churn on a handful of
+      shots. Without a cap, conservation-law tracking treats every
+      revision as fresh budget consumption and the schedule slips
+      asymmetrically across sequences.
+    options_considered:
+      - id: a
+        description: No cap — let directors iterate freely.
+        pros: [Maximum creative latitude]
+        cons: [Schedule pressure, budget drift, no escalation signal]
+      - id: b
+        description: Hard cap at three rounds; producer must approve a fourth.
+        pros: [Clear escalation signal, budget predictability]
+        cons: [Some shots legitimately need more rounds]
+    choice: b
+    rationale: |
+      The escalation hook is the value here — three rounds is a heuristic;
+      the producer override path means edge cases stay tractable while
+      systemic churn surfaces fast.
+    state: committed
+    committers: [person:omniscia, person:rjwalters]
+    conservation_class: schedule
