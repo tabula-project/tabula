@@ -10,6 +10,9 @@ These tests are pure in-memory — no sockets, no async. They verify:
     4. The handshake fails cleanly when the initiator was given a WRONG
        expected remote static pubkey.
 
+Static keys come from :mod:`tabula_wire.crypto.keys` (PR #46) — this module
+does NOT redefine key types.
+
 The 3-message XX exchange is driven by the test directly so any wrong-order
 or bad-byte injection is easy to add later.
 """
@@ -18,12 +21,11 @@ from __future__ import annotations
 
 import pytest
 
-from tabula_wire_crypto import (
+from tabula_wire.crypto import (
     HandshakeError,
-    StaticKeyPair,
     XXInitiator,
     XXResponder,
-    generate_static_keypair,
+    generate_keypair,
 )
 
 
@@ -46,14 +48,14 @@ def _run_handshake(init: XXInitiator, resp: XXResponder) -> None:
 
 def test_full_handshake_and_transport_roundtrip() -> None:
     """End-to-end: handshake completes, both directions encrypt/decrypt."""
-    init_static = generate_static_keypair()
-    resp_static = generate_static_keypair()
+    init_secret = generate_keypair()
+    resp_secret = generate_keypair()
 
     init = XXInitiator(
-        local_static=init_static,
-        remote_static_pubkey=resp_static.public,
+        local_static=init_secret,
+        remote_static_pubkey=resp_secret.public_key(),
     )
-    resp = XXResponder(local_static=resp_static)
+    resp = XXResponder(local_static=resp_secret)
 
     assert not init.handshake_finished
     assert not resp.handshake_finished
@@ -76,35 +78,36 @@ def test_full_handshake_and_transport_roundtrip() -> None:
 
 def test_initiator_sees_expected_responder_static() -> None:
     """After handshake, initiator's view of remote pubkey == responder's actual pubkey."""
-    init_static = generate_static_keypair()
-    resp_static = generate_static_keypair()
+    init_secret = generate_keypair()
+    resp_secret = generate_keypair()
+    resp_public = resp_secret.public_key()
 
     init = XXInitiator(
-        local_static=init_static,
-        remote_static_pubkey=resp_static.public,
+        local_static=init_secret,
+        remote_static_pubkey=resp_public,
     )
-    resp = XXResponder(local_static=resp_static)
+    resp = XXResponder(local_static=resp_secret)
 
     _run_handshake(init, resp)
 
-    assert init.remote_static_pubkey == resp_static.public
+    assert init.remote_static_pubkey == resp_public.raw
     # And the responder learns the initiator's pubkey too (for app-layer authn).
-    assert resp.remote_static_pubkey == init_static.public
+    assert resp.remote_static_pubkey == init_secret.public_key().raw
 
 
 def test_handshake_fails_with_wrong_expected_remote_static() -> None:
     """If the initiator pins a different pubkey than the responder presents,
     the handshake aborts before message 3 with HandshakeError."""
-    init_static = generate_static_keypair()
-    resp_static = generate_static_keypair()
-    # Wrong pin: a third unrelated keypair's public bytes
-    decoy = generate_static_keypair()
+    init_secret = generate_keypair()
+    resp_secret = generate_keypair()
+    # Wrong pin: a third unrelated keypair's public bytes.
+    decoy_secret = generate_keypair()
 
     init = XXInitiator(
-        local_static=init_static,
-        remote_static_pubkey=decoy.public,  # wrong pin
+        local_static=init_secret,
+        remote_static_pubkey=decoy_secret.public_key(),  # wrong pin
     )
-    resp = XXResponder(local_static=resp_static)
+    resp = XXResponder(local_static=resp_secret)
 
     msg1 = init.write_handshake_message()
     resp.read_handshake_message(msg1)
@@ -124,14 +127,14 @@ def test_handshake_fails_on_corrupted_message() -> None:
 
     This exercises the AEAD MAC failure path through the wrapper.
     """
-    init_static = generate_static_keypair()
-    resp_static = generate_static_keypair()
+    init_secret = generate_keypair()
+    resp_secret = generate_keypair()
 
     init = XXInitiator(
-        local_static=init_static,
-        remote_static_pubkey=resp_static.public,
+        local_static=init_secret,
+        remote_static_pubkey=resp_secret.public_key(),
     )
-    resp = XXResponder(local_static=resp_static)
+    resp = XXResponder(local_static=resp_secret)
 
     msg1 = init.write_handshake_message()
     resp.read_handshake_message(msg1)
@@ -147,23 +150,37 @@ def test_handshake_fails_on_corrupted_message() -> None:
 def test_encrypt_before_handshake_finished_raises() -> None:
     """Calling encrypt() before the handshake completes is a programming error."""
     init = XXInitiator(
-        local_static=generate_static_keypair(),
-        remote_static_pubkey=generate_static_keypair().public,
+        local_static=generate_keypair(),
+        remote_static_pubkey=generate_keypair().public_key(),
     )
     with pytest.raises(HandshakeError, match="handshake not finished"):
         init.encrypt(b"too early")
 
 
-def test_static_keypair_validates_public_length() -> None:
-    """Construction safety: only accept 32-byte X25519 public keys."""
-    real = generate_static_keypair()
-    with pytest.raises(ValueError):
-        # private side stays valid; public side is wrong length.
-        StaticKeyPair(public=b"\x00" * 16, _diss_keypair=real._diss_keypair)
+def test_initiator_accepts_raw_bytes_pin() -> None:
+    """The pin parameter accepts either a PublicKey or 32 raw bytes."""
+    init_secret = generate_keypair()
+    resp_secret = generate_keypair()
+
+    init = XXInitiator(
+        local_static=init_secret,
+        remote_static_pubkey=resp_secret.public_key().raw,  # raw bytes
+    )
+    resp = XXResponder(local_static=resp_secret)
+
+    _run_handshake(init, resp)
+    assert init.handshake_finished
+    assert init.remote_static_pubkey == resp_secret.public_key().raw
 
 
 def test_initiator_rejects_wrong_length_pin() -> None:
     """A pin of the wrong length is a programming error, not a handshake error."""
-    init_static = generate_static_keypair()
+    init_secret = generate_keypair()
     with pytest.raises(ValueError):
-        XXInitiator(local_static=init_static, remote_static_pubkey=b"\x00" * 16)
+        XXInitiator(local_static=init_secret, remote_static_pubkey=b"\x00" * 16)
+
+
+def test_initiator_rejects_wrong_local_static_type() -> None:
+    """``local_static`` must be a :class:`SecretKey` from PR #46, not raw bytes."""
+    with pytest.raises(TypeError):
+        XXInitiator(local_static=b"\x00" * 32)  # type: ignore[arg-type]

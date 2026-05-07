@@ -1,9 +1,14 @@
 """Noise XX wrappers: XXInitiator / XXResponder.
 
 A thin, opinionated state machine around the `dissononce` library. The wrapper
-hides the cipher-suite plumbing (Noise_XX_25519_ChaChaPoly_BLAKE2s is the only
-suite supported here — see README) and exposes a small surface that the
-server/client frame loops will consume.
+hides the cipher-suite plumbing (``Noise_XX_25519_ChaChaPoly_BLAKE2s`` is the
+only suite supported here — see ``wire/README.md``) and exposes a small surface
+that the server/client frame loops will consume.
+
+Static keys come from :mod:`tabula_wire.crypto.keys` (PR #46): the wrapper
+accepts a :class:`~tabula_wire.crypto.keys.SecretKey` for the local static and
+a :class:`~tabula_wire.crypto.keys.PublicKey` (or its raw 32-byte form) for the
+optional pin on the responder's static. We do **not** redefine key types here.
 
 Lifecycle:
 
@@ -11,10 +16,10 @@ Lifecycle:
         — drive the 3-message XX exchange. The caller is responsible for I/O.
         — initiator pattern: write, read, write
         — responder pattern: read, write, read
-        — `handshake_finished` flips True once the final exchange completes.
+        — ``handshake_finished`` flips True once the final exchange completes.
 
     encrypt() / decrypt()
-        — only valid AFTER `handshake_finished`. Each call advances the
+        — only valid AFTER ``handshake_finished``. Each call advances the
           per-direction nonce. AD is empty for now (the proto frame layer in
           #16 will add its own integrity if it wants).
 
@@ -26,11 +31,14 @@ Lifecycle:
 
 from __future__ import annotations
 
-from typing import Optional
+from typing import Optional, Union
 
 from dissononce.cipher.chachapoly import ChaChaPolyCipher
-from dissononce.dh.x25519.x25519 import X25519DH
+from dissononce.dh.keypair import KeyPair as _DissKeyPair
+from dissononce.dh.x25519.private import PrivateKey as _DissPrivateKey
+from dissononce.dh.x25519.public import PublicKey as _DissPublicKey
 from dissononce.hash.blake2s import Blake2sHash
+from dissononce.dh.x25519.x25519 import X25519DH
 from dissononce.processing.handshakepatterns.interactive.XX import (
     XXHandshakePattern,
 )
@@ -38,7 +46,7 @@ from dissononce.processing.impl.cipherstate import CipherState
 from dissononce.processing.impl.handshakestate import HandshakeState
 from dissononce.processing.impl.symmetricstate import SymmetricState
 
-from tabula_wire_crypto.keys import KEY_LEN, StaticKeyPair
+from tabula_wire.crypto.keys import PUBLIC_KEY_BYTES, PublicKey, SecretKey
 
 
 class HandshakeError(Exception):
@@ -51,9 +59,9 @@ class HandshakeError(Exception):
 
 
 def _new_handshake_state() -> HandshakeState:
-    """Build a fresh Noise_XX_25519_ChaChaPoly_BLAKE2s HandshakeState.
+    """Build a fresh ``Noise_XX_25519_ChaChaPoly_BLAKE2s`` HandshakeState.
 
-    Cipher suite is hard-coded: see `wire/crypto/README.md` for rationale.
+    Cipher suite is hard-coded: see ``wire/README.md`` for rationale.
     """
     return HandshakeState(
         SymmetricState(CipherState(ChaChaPolyCipher()), Blake2sHash()),
@@ -61,20 +69,59 @@ def _new_handshake_state() -> HandshakeState:
     )
 
 
+def _secret_to_diss_keypair(secret: SecretKey) -> _DissKeyPair:
+    """Convert a canonical :class:`SecretKey` to a dissononce ``KeyPair``.
+
+    dissononce expects its own key types internally. We materialize them from
+    the raw 32-byte X25519 scalar and the derived public bytes — no extra
+    randomness, no reformatting of secret material on disk.
+    """
+    raw_priv = bytes(secret.raw)
+    raw_pub = secret.public_key().raw
+    return _DissKeyPair(
+        public_key=_DissPublicKey(raw_pub),
+        private_key=_DissPrivateKey(raw_priv),
+    )
+
+
+def _coerce_pin(
+    pin: Union[PublicKey, bytes, bytearray, None],
+) -> Optional[bytes]:
+    """Normalize an optional pubkey pin to 32 raw bytes (or None)."""
+    if pin is None:
+        return None
+    if isinstance(pin, PublicKey):
+        return bytes(pin.raw)
+    if isinstance(pin, (bytes, bytearray)):
+        if len(pin) != PUBLIC_KEY_BYTES:
+            raise ValueError(
+                f"remote_static_pubkey must be {PUBLIC_KEY_BYTES} bytes, "
+                f"got {len(pin)}"
+            )
+        return bytes(pin)
+    raise TypeError(
+        "remote_static_pubkey must be PublicKey, bytes, or None; "
+        f"got {type(pin).__name__}"
+    )
+
+
 class _XXBase:
     """Shared lifecycle for initiator + responder.
 
-    Subclasses set `_initiator: bool` and call `_initialize()` from __init__.
+    Subclasses set ``_initiator: bool`` and call ``_initialize()`` from
+    ``__init__``.
     """
 
     _initiator: bool
 
-    def __init__(self, local_static: StaticKeyPair) -> None:
-        if not isinstance(local_static, StaticKeyPair):
+    def __init__(self, local_static: SecretKey) -> None:
+        if not isinstance(local_static, SecretKey):
             raise TypeError(
-                f"local_static must be StaticKeyPair, got {type(local_static).__name__}"
+                "local_static must be tabula_wire.crypto.keys.SecretKey, "
+                f"got {type(local_static).__name__}"
             )
         self._local_static = local_static
+        self._diss_keypair = _secret_to_diss_keypair(local_static)
         self._hs: Optional[HandshakeState] = _new_handshake_state()
         self._cs_send: Optional[CipherState] = None
         self._cs_recv: Optional[CipherState] = None
@@ -87,7 +134,7 @@ class _XXBase:
             handshake_pattern=XXHandshakePattern(),
             initiator=self._initiator,
             prologue=b"",
-            s=self._local_static._diss_keypair,
+            s=self._diss_keypair,
         )
 
     @property
@@ -99,9 +146,9 @@ class _XXBase:
     def remote_static_pubkey(self) -> Optional[bytes]:
         """The 32-byte X25519 pubkey the peer transmitted during XX.
 
-        None until the handshake has progressed far enough for the peer's
+        ``None`` until the handshake has progressed far enough for the peer's
         static to have been received and decrypted. After
-        `handshake_finished`, this is guaranteed non-None.
+        ``handshake_finished``, this is guaranteed non-None.
         """
         return self._remote_static_pubkey
 
@@ -134,10 +181,10 @@ class _XXBase:
     def write_handshake_message(self, payload: bytes = b"") -> bytes:
         """Produce the next outgoing handshake message.
 
-        Caller is responsible for transmitting the returned bytes.
-        Most XX deployments send empty payload bytes; the parameter is kept
-        for spec parity (XX allows piggy-backed payload after the relevant
-        keys arrive).
+        Caller is responsible for transmitting the returned bytes. Most XX
+        deployments send empty payload bytes; the parameter is kept for spec
+        parity (XX allows piggy-backed payload after the relevant keys
+        arrive).
         """
         if self._hs is None:
             raise HandshakeError("handshake already finished; use encrypt()")
@@ -157,9 +204,9 @@ class _XXBase:
         """Consume an incoming handshake message and return any payload.
 
         On the third (final) message, transport keys are derived and
-        `handshake_finished` flips True.
+        ``handshake_finished`` flips True.
 
-        Raises `HandshakeError` on MAC failure, decryption failure, or
+        Raises :class:`HandshakeError` on MAC failure, decryption failure, or
         protocol-state error (e.g. peer used the wrong static key).
         """
         if self._hs is None:
@@ -196,9 +243,10 @@ class _XXBase:
 class XXInitiator(_XXBase):
     """Client side of the Noise XX handshake.
 
-    The initiator may pass an *expected* remote static pubkey (32 bytes). XX
-    learns the remote static during the handshake, not before, but the
-    pinning layer wants to fail-fast if what arrives doesn't match what was
+    The initiator may pass an *expected* remote static pubkey (a
+    :class:`~tabula_wire.crypto.keys.PublicKey` or 32 raw bytes). XX learns
+    the remote static during the handshake, not before, but the pinning layer
+    wants to fail-fast if what arrives doesn't match what was
     out-of-band-trusted. We do that check at the moment the remote static
     becomes known — i.e. when the second handshake message has been read.
     """
@@ -207,21 +255,11 @@ class XXInitiator(_XXBase):
 
     def __init__(
         self,
-        local_static: StaticKeyPair,
-        remote_static_pubkey: Optional[bytes] = None,
+        local_static: SecretKey,
+        remote_static_pubkey: Union[PublicKey, bytes, bytearray, None] = None,
     ) -> None:
         super().__init__(local_static)
-        if remote_static_pubkey is not None:
-            if not isinstance(remote_static_pubkey, (bytes, bytearray)):
-                raise TypeError("remote_static_pubkey must be bytes")
-            if len(remote_static_pubkey) != KEY_LEN:
-                raise ValueError(
-                    f"remote_static_pubkey must be {KEY_LEN} bytes, "
-                    f"got {len(remote_static_pubkey)}"
-                )
-            self._expected_remote_static = bytes(remote_static_pubkey)
-        else:
-            self._expected_remote_static = None
+        self._expected_remote_static = _coerce_pin(remote_static_pubkey)
         self._initialize()
 
     def read_handshake_message(self, message: bytes) -> bytes:
@@ -248,12 +286,12 @@ class XXResponder(_XXBase):
 
     Responder does not pre-pin the initiator's static (TOFU happens at the
     application layer once the handshake completes). The exposed
-    `remote_static_pubkey` after `handshake_finished` is what the application
-    uses for authn / authz decisions.
+    ``remote_static_pubkey`` after ``handshake_finished`` is what the
+    application uses for authn / authz decisions.
     """
 
     _initiator = False
 
-    def __init__(self, local_static: StaticKeyPair) -> None:
+    def __init__(self, local_static: SecretKey) -> None:
         super().__init__(local_static)
         self._initialize()
