@@ -38,7 +38,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Sequence
 
-from tabula_cli._enclave_state import (
+from tabula_cli.state import (
     EnclaveState,
     StateCorruptError,
     StateError,

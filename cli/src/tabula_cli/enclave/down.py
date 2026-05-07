@@ -2,7 +2,7 @@
 
 This module currently implements the ``down`` teardown subcommand (issue
 #28). The ``up`` provisioning subcommand (issue #26) is referenced by the
-shared :mod:`tabula_cli._enclave_state` schema and will be wired into the
+shared :mod:`tabula_cli.state` schema and will be wired into the
 same argparse group when its PR lands.
 
 Key invariants for ``down``:
@@ -38,7 +38,7 @@ from typing import Callable
 
 import typer
 
-from tabula_cli._enclave_state import (
+from tabula_cli.state import (
     ENCLAVE_LABEL_KEY,
     EnclaveState,
     StateCorruptError,

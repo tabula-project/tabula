@@ -6,7 +6,7 @@ pinning store.
 ## Status
 
 * `tabula enclave up <name>` — implemented (issue #26).
-* `tabula enclave down <name>` — implemented (issue #28). The state.json schema (`version: 1`) is shared; see [`_enclave_state.py`](src/tabula_cli/_enclave_state.py).
+* `tabula enclave down <name>` — implemented (issue #28). The state.json schema (`version: 1`) is shared; see [`state.py`](src/tabula_cli/state.py).
 * `tabula enclave ssh <name> {classifier|gpu|gitea}` — implemented (issue #33).
 * `tabula enclave status <name>` — pending (issue #30).
 * `tabula servers add/list/remove` — implemented (issue #32). Manages

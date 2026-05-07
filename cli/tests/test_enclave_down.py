@@ -20,7 +20,7 @@ from pathlib import Path
 
 import pytest
 
-from tabula_cli._enclave_state import EnclaveState, write_state
+from tabula_cli.state import EnclaveState, write_state
 from tabula_cli.enclave import (
     EXIT_LEFTOVERS,
     EXIT_OK,

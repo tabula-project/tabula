@@ -11,13 +11,13 @@ Subcommands (planned, not yet implemented in this package):
 * ``tabula enclave status <name>`` -- health check (issue #30)
 * ``tabula enclave ssh <name> {classifier|gpu|gitea}`` -- IAP-tunneled shell (issue #33)
 
-The :mod:`tabula_cli._enclave_state` module is the shared schema for the
+The :mod:`tabula_cli.state` module is the shared schema for the
 on-disk per-enclave state file. ``up`` writes it, ``down`` reads it. The
 schema is versioned (``version: 1``); see that module's docstring for the
 contract.
 """
 
-from tabula_cli._enclave_state import (
+from tabula_cli.state import (
     ENCLAVE_LABEL_KEY,
     STATE_SCHEMA_VERSION,
     EnclaveState,
