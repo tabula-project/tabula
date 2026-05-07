@@ -11,9 +11,14 @@ authors = [
 classifiers = [
   "License :: OSI Approved :: Apache Software License",
   "Programming Language :: Python :: 3.12",
+  "Topic :: Security :: Cryptography",
 ]
 dependencies = [
+  # X25519 / ChaCha20-Poly1305 primitives + on-disk static-key format (#46).
   "cryptography>=42.0",
+  # Pure-Python Noise Protocol Framework — drives the XX state machine in
+  # ``tabula_wire.crypto.noise_xx`` (#18). Pinned to 0.34.x; review before bumping.
+  "dissononce>=0.34.3,<0.35",
 ]
 
 [project.optional-dependencies]

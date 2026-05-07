@@ -1,7 +1,7 @@
 """Cryptography primitives for the Tabula wire layer.
 
-Currently exposes static-key file I/O. The Noise XX wrapper lands in #18 and
-will live alongside ``keys`` in this package.
+Static-key file I/O lives in :mod:`tabula_wire.crypto.keys`; the Noise XX
+state machine lives in :mod:`tabula_wire.crypto.noise_xx`.
 """
 
 from tabula_wire.crypto.keys import (
@@ -14,6 +14,11 @@ from tabula_wire.crypto.keys import (
     public_key_hex,
     save_secret_key,
 )
+from tabula_wire.crypto.noise_xx import (
+    HandshakeError,
+    XXInitiator,
+    XXResponder,
+)
 
 __all__ = [
     "KEY_FILE_MAGIC",
@@ -24,4 +29,7 @@ __all__ = [
     "load_secret_key",
     "public_key_hex",
     "save_secret_key",
+    "HandshakeError",
+    "XXInitiator",
+    "XXResponder",
 ]
