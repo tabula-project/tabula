@@ -27,7 +27,7 @@ allOf:
 
       canonical_id:
         type: string
-        pattern: ^vision:[a-z0-9-]+$
+        pattern: "^vision:[a-z0-9-]+$"
         description: |
           Stable identifier. The vision for the family is `vision:family`;
           for a sovereign self, `vision:self`; for an org, `vision:<org-slug>`.
@@ -81,7 +81,7 @@ allOf:
           People who co-author or co-own this vision. For a family vision,
           adults; for a sovereign-self vision, just the self. Multi-author
           visions require joint supersession.
-        items: {type: string, pattern: ^person:[a-z0-9-]+$}
+        items: {type: string, pattern: "^person:[a-z0-9-]+$"}
 
 examples:
   - id: 01HXAA9VISIONFAMILY

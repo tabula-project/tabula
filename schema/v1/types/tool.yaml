@@ -24,7 +24,7 @@ allOf:
 
       canonical_id:
         type: string
-        pattern: ^tool:[a-z0-9-]+$
+        pattern: "^tool:[a-z0-9-]+$"
 
       name:
         type: string
@@ -65,7 +65,7 @@ allOf:
 
       maintainer:
         type: string
-        pattern: ^person:[a-z0-9-]+$
+        pattern: "^person:[a-z0-9-]+$"
 
       source_path:
         type: string
@@ -74,7 +74,7 @@ allOf:
       depends_on:
         type: array
         description: Other tools this tool calls or composes.
-        items: {type: string, pattern: ^tool:[a-z0-9-]+$}
+        items: {type: string, pattern: "^tool:[a-z0-9-]+$"}
 
 examples:
   - id: 01HXBBTOOLSOVWARM

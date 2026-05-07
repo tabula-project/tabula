@@ -1,20 +1,23 @@
-"""Schema YAML parse-cleanliness test (issue #87).
+"""Schema YAML parse-cleanliness test (issues #87 and #94).
 
-Several files in ``schema/v1/`` previously contained unquoted regex quantifiers
-like ``{26}`` inside flow-style mappings (e.g. ``pattern: ^[0-9A-Z]{26}$``).
-YAML 1.2 treats unquoted ``{...}`` as flow-mapping syntax in some contexts,
-so strict parsers (PyYAML, ruamel.yaml strict, js-yaml) reject these files
-outright.
+Several files in ``schema/`` previously contained YAML hazards that strict
+parsers (PyYAML, ruamel.yaml strict, js-yaml) reject outright:
 
-This test exercises the three files touched by issue #87 against each parser
-we have available and asserts a clean parse with no errors. Scope is
-intentionally narrow:
+  - **#87**: unquoted regex quantifiers like ``{26}`` inside flow-style
+    mappings (e.g. ``pattern: ^[0-9A-Z]{26}$``). YAML 1.2 treats unquoted
+    ``{...}`` as flow-mapping syntax in some contexts.
+  - **#94**: unquoted ``:`` inside ``pattern:`` values (e.g.
+    ``pattern: ^person:[a-z0-9-]+$``). In flow-mapping context the ``:`` is
+    genuinely ambiguous; in block context it's defensible but quoting is
+    cheap insurance and required for cross-parser robustness (js-yaml is
+    stricter than PyYAML).
 
-  - It targets ONLY the files enumerated in issue #87 (``frontmatter-base.yaml``,
-    ``types/observation.yaml``, ``types/conversation.yaml``). Other files in
-    ``schema/v1/types/`` have a separate, independent flow-mapping issue
-    involving unquoted ``:`` inside patterns like ``^person:[a-z0-9-]+$`` —
-    that is out of scope for #87 and tracked elsewhere.
+After both fixes land, every schema YAML must parse cleanly under all three
+parsers we exercise here. Scope is intentionally narrow:
+
+  - It targets every YAML file under ``schema/v1/`` (the 9 type schemas plus
+    ``frontmatter-base.yaml``) and the Luce extension under
+    ``schema/luce/v1/extensions/decision.yaml``.
   - It does NOT validate the *meaning* of the schemas; it only asserts that
     the YAML loads cleanly.
   - The PyYAML leg is mandatory (PyYAML is a tiny pure-Python dep). The
@@ -25,6 +28,7 @@ intentionally narrow:
 from __future__ import annotations
 
 import pathlib
+import re
 import shutil
 import subprocess
 
@@ -36,28 +40,22 @@ _REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
 _SCHEMA_ROOT = _REPO_ROOT / "schema"
 
 
-# Files explicitly enumerated in issue #87 (the seven affected lines all live
-# in these three files). Keep this list narrow; do not expand to the rest of
-# ``schema/v1/types/`` until the separate flow-mapping-colon issue is fixed.
-#
-# NOTE on ``conversation.yaml``: that file is in the #87 fix list (line 67),
-# but it ALSO contains independent flow-mapping bugs at lines 33 and 79
-# involving unquoted ``:`` in patterns like ``^person:[a-z0-9-]+$``. Those
-# are out of scope for #87 (a separate fix). To keep this test green and
-# strictly scoped, ``conversation.yaml`` is excluded from the
-# ``test_*_load`` parser parametrize lists below; its #87-specific
-# transformation is verified textually by ``test_targeted_lines_are_quoted``.
+# Every schema YAML file. After #94 lands, all of these must parse cleanly
+# under every parser leg below. ``conversation.yaml`` was previously carved
+# out because it contained additional unquoted-pattern bugs that #87 didn't
+# fix; #94 finishes the cleanup so the carve-out is gone.
 _TARGET_RELPATHS: tuple[str, ...] = (
     "schema/v1/frontmatter-base.yaml",
-    "schema/v1/types/observation.yaml",
     "schema/v1/types/conversation.yaml",
-)
-
-# Subset that parses cleanly after JUST the #87 fix (i.e. excludes the file
-# with additional out-of-scope unquoted-pattern bugs).
-_PARSE_TEST_RELPATHS: tuple[str, ...] = (
-    "schema/v1/frontmatter-base.yaml",
+    "schema/v1/types/decision.yaml",
+    "schema/v1/types/event.yaml",
     "schema/v1/types/observation.yaml",
+    "schema/v1/types/person.yaml",
+    "schema/v1/types/place.yaml",
+    "schema/v1/types/project.yaml",
+    "schema/v1/types/tool.yaml",
+    "schema/v1/types/vision.yaml",
+    "schema/luce/v1/extensions/decision.yaml",
 )
 
 
@@ -80,7 +78,6 @@ def _resolve(relpaths: tuple[str, ...]) -> list[pathlib.Path]:
 
 
 _SCHEMA_FILES = _resolve(_TARGET_RELPATHS)
-_PARSE_TEST_FILES = _resolve(_PARSE_TEST_RELPATHS)
 
 
 def _rel(path: pathlib.Path) -> str:
@@ -96,9 +93,9 @@ def _rel(path: pathlib.Path) -> str:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize("path", _PARSE_TEST_FILES, ids=_rel)
+@pytest.mark.parametrize("path", _SCHEMA_FILES, ids=_rel)
 def test_pyyaml_safe_load(path: pathlib.Path) -> None:
-    """Every #87-targeted schema YAML must load cleanly under PyYAML ``safe_load``."""
+    """Every schema YAML must load cleanly under PyYAML ``safe_load``."""
     yaml = pytest.importorskip("yaml", reason="PyYAML not installed")
     with path.open(encoding="utf-8") as f:
         try:
@@ -112,9 +109,9 @@ def test_pyyaml_safe_load(path: pathlib.Path) -> None:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize("path", _PARSE_TEST_FILES, ids=_rel)
+@pytest.mark.parametrize("path", _SCHEMA_FILES, ids=_rel)
 def test_ruamel_strict_load(path: pathlib.Path) -> None:
-    """Every #87-targeted schema YAML must load cleanly under ruamel.yaml strict."""
+    """Every schema YAML must load cleanly under ruamel.yaml strict."""
     ruamel_mod = pytest.importorskip(
         "ruamel.yaml", reason="ruamel.yaml not installed"
     )
@@ -125,10 +122,10 @@ def test_ruamel_strict_load(path: pathlib.Path) -> None:
     # NOTE: ``allow_duplicate_keys`` is intentionally left at the default
     # (``True``) here. ruamel's strict duplicate-key check would surface a
     # separate, unrelated bug (#86: duplicate ``properties`` keys in some
-    # type schemas) that is OUT OF SCOPE for #87. The narrow purpose of this
-    # leg is to verify that #87's flow-mapping fix holds under ruamel's
-    # generally-stricter parser. When #86 lands, this comment can be removed
-    # and strict duplicate detection re-enabled.
+    # type schemas) that is OUT OF SCOPE for #87 and #94. The narrow purpose
+    # of this leg is to verify that the flow-mapping fixes hold under
+    # ruamel's generally-stricter parser. A separate cleanup PR can tighten
+    # this once the duplicate-key carve-outs are no longer needed.
     parser.allow_duplicate_keys = True
 
     with path.open(encoding="utf-8") as f:
@@ -164,9 +161,9 @@ def _js_yaml_available() -> tuple[bool, str]:
     return True, ""
 
 
-@pytest.mark.parametrize("path", _PARSE_TEST_FILES, ids=_rel)
+@pytest.mark.parametrize("path", _SCHEMA_FILES, ids=_rel)
 def test_js_yaml_load(path: pathlib.Path) -> None:
-    """Every #87-targeted schema YAML must load cleanly under js-yaml (if installed)."""
+    """Every schema YAML must load cleanly under js-yaml (if installed)."""
     ok, reason = _js_yaml_available()
     if not ok:
         pytest.skip(reason)
@@ -174,8 +171,8 @@ def test_js_yaml_load(path: pathlib.Path) -> None:
     # Run js-yaml.load(..) on the file; print "OK" on success, exit non-zero
     # with the parser error on failure. ``json: true`` selects JSON-compatible
     # behavior so duplicate keys (an unrelated #86 bug) don't fail this leg —
-    # we only care about the flow-mapping fix here, not duplicate-key strict
-    # detection.
+    # we only care about the flow-mapping fixes here, not duplicate-key
+    # strict detection.
     script = (
         "const fs = require('fs'); const yaml = require('js-yaml'); "
         "try { yaml.load(fs.readFileSync(process.argv[1], 'utf8'), "
@@ -198,23 +195,22 @@ def test_js_yaml_load(path: pathlib.Path) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Textual fix-verification (covers all 7 #87 lines, including conversation.yaml)
+# Textual fix-verification (regression guards for #87 and #94)
 # ---------------------------------------------------------------------------
 
 
 # The seven lines enumerated by the curator in #87. Every occurrence uses the
 # same ULID pattern; every occurrence MUST be wrapped in double quotes after
-# the fix. The textual assertions below catch a regression even on
-# ``conversation.yaml``, which can't be parsed end-to-end yet because of an
-# unrelated, out-of-scope bug.
-_AFFECTED_LINES: tuple[tuple[str, int], ...] = (
+# the fix. (Line numbers reflect the file state after both #87 and #94
+# have landed.)
+_AFFECTED_LINES_87: tuple[tuple[str, int], ...] = (
     ("schema/v1/frontmatter-base.yaml", 24),
     ("schema/v1/frontmatter-base.yaml", 117),
     ("schema/v1/frontmatter-base.yaml", 121),
     ("schema/v1/frontmatter-base.yaml", 125),
     ("schema/v1/frontmatter-base.yaml", 129),
-    ("schema/v1/types/observation.yaml", 65),
-    ("schema/v1/types/conversation.yaml", 67),
+    ("schema/v1/types/observation.yaml", 64),
+    ("schema/v1/types/conversation.yaml", 66),
 )
 
 _QUOTED_ULID = '"^[0-9A-HJKMNP-TV-Z]{26}$"'
@@ -223,15 +219,14 @@ _UNQUOTED_ULID_BARE = "^[0-9A-HJKMNP-TV-Z]{26}$"
 
 @pytest.mark.parametrize(
     ("relpath", "lineno"),
-    _AFFECTED_LINES,
+    _AFFECTED_LINES_87,
     ids=lambda v: str(v),
 )
 def test_targeted_lines_are_quoted(relpath: str, lineno: int) -> None:
     """Each of the seven #87 lines must contain the QUOTED ULID pattern.
 
     Regression guard: catches anyone who reverts a single line back to the
-    unquoted form, even on files whose full parse is blocked by an unrelated
-    out-of-scope bug.
+    unquoted form.
     """
     path = _REPO_ROOT / relpath
     assert path.is_file(), f"missing schema file: {relpath}"
@@ -239,7 +234,7 @@ def test_targeted_lines_are_quoted(relpath: str, lineno: int) -> None:
     assert lineno <= len(text), (
         f"{relpath} has only {len(text)} lines; expected line {lineno} "
         f"to contain the ULID pattern (file may have been refactored — "
-        f"update _AFFECTED_LINES if so)."
+        f"update _AFFECTED_LINES_87 if so)."
     )
     line = text[lineno - 1]
     assert _QUOTED_ULID in line, (
@@ -261,6 +256,40 @@ def test_targeted_lines_are_quoted(relpath: str, lineno: int) -> None:
     )
 
 
+# Regression guard for #94: any ``pattern:`` value containing ``:`` must be
+# wrapped in quotes. Matches both block-style (``pattern: ^x:y$``) and
+# flow-style (``pattern: ^x:y$}``) occurrences. The regex looks for
+# ``pattern:``, optional whitespace, then a value that starts with a
+# non-quote character and contains a ``:`` somewhere before the line's
+# terminator (``$`` or ``}``). After the fix, this scan should yield zero
+# matches across every schema file.
+_UNQUOTED_PATTERN_COLON_RE = re.compile(
+    r"pattern:\s+[^\"'\s].*:.*[\$\}]"
+)
+
+
+@pytest.mark.parametrize("path", _SCHEMA_FILES, ids=_rel)
+def test_no_unquoted_colon_in_pattern_values(path: pathlib.Path) -> None:
+    """No schema YAML may contain an unquoted ``:`` inside a ``pattern:`` value.
+
+    Regression guard for #94: catches both block-style
+    (``pattern: ^person:[a-z0-9-]+$``) and flow-style
+    (``items: {... pattern: ^person:[a-z0-9-]+$}``) occurrences. After the
+    fix, every ``pattern:`` value containing a ``:`` must be wrapped in
+    double quotes.
+    """
+    text = path.read_text(encoding="utf-8")
+    offenders: list[tuple[int, str]] = []
+    for lineno, line in enumerate(text.splitlines(), start=1):
+        if _UNQUOTED_PATTERN_COLON_RE.search(line):
+            offenders.append((lineno, line))
+    assert not offenders, (
+        f"{_rel(path)}: found unquoted ``:`` inside ``pattern:`` values "
+        f"(should be wrapped in double quotes for cross-parser robustness):\n"
+        + "\n".join(f"  line {n}: {ln!r}" for n, ln in offenders)
+    )
+
+
 # ---------------------------------------------------------------------------
 # Sanity: we actually discovered the targeted files
 # ---------------------------------------------------------------------------
@@ -269,8 +298,8 @@ def test_targeted_lines_are_quoted(relpath: str, lineno: int) -> None:
 def test_schema_yaml_collection_nonempty() -> None:
     """Guard: every targeted file must exist on disk.
 
-    This fails loudly if a future refactor moves any of the #87-affected
-    files so the parser tests can't silently turn into a green no-op.
+    This fails loudly if a future refactor moves any of the targeted files
+    so the parser tests can't silently turn into a green no-op.
     """
     assert _SCHEMA_ROOT.is_dir(), (
         f"schema directory not found at {_SCHEMA_ROOT} — did the repo layout "
@@ -280,6 +309,6 @@ def test_schema_yaml_collection_nonempty() -> None:
     expected = set(_TARGET_RELPATHS)
     missing = expected - found
     assert not missing, (
-        f"expected #87-targeted schema files missing on disk: {sorted(missing)}; "
+        f"expected schema files missing on disk: {sorted(missing)}; "
         f"update _TARGET_RELPATHS in this test if the layout changed."
     )

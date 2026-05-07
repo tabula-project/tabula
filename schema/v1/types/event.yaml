@@ -44,13 +44,13 @@ allOf:
 
       location:
         type: string
-        pattern: ^location:[a-z0-9-]+$
+        pattern: "^location:[a-z0-9-]+$"
         description: Place canonical ID where the event happens.
 
       participants:
         type: array
         description: Person canonical IDs involved.
-        items: {type: string, pattern: ^person:[a-z0-9-]+$}
+        items: {type: string, pattern: "^person:[a-z0-9-]+$"}
 
       kind:
         type: string
