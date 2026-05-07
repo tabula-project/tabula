@@ -38,7 +38,7 @@ from tabula_cli.enclave.ssh import (
     enclave_ssh,
     resolve_target,
 )
-from tabula_cli._enclave_state import EnclaveState, STATE_SCHEMA_VERSION
+from tabula_cli.state import EnclaveState, STATE_SCHEMA_VERSION
 
 
 # --------------------------------------------------------------------------- #

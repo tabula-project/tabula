@@ -24,7 +24,7 @@ from typing import Optional
 
 import typer
 
-from tabula_cli import _enclave_state as state_mod
+from tabula_cli import state as state_mod
 from tabula_cli import _terraform as tf
 
 # Exit codes are part of the public contract; keep stable.

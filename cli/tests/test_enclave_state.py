@@ -10,7 +10,7 @@ from pathlib import Path
 
 import pytest
 
-from tabula_cli._enclave_state import (
+from tabula_cli.state import (
     STATE_SCHEMA_VERSION,
     EnclaveState,
     StateCorruptError,

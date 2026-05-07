@@ -18,7 +18,7 @@ from unittest import mock
 import pytest
 from typer.testing import CliRunner
 
-from tabula_cli import _enclave_state as state_mod
+from tabula_cli import state as state_mod
 from tabula_cli import _terraform as tf_mod
 from tabula_cli.enclave import up as enclave_mod
 from tabula_cli.main import app as root_app
