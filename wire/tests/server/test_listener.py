@@ -102,7 +102,9 @@ async def _drive_client_handshake(
     msg1 = initiator.write_handshake_message(b"")
     await write_frame(writer, msg1)
     # msg2: <- e, ee, s, es
-    msg2 = await read_frame(reader)
+    # Wrap the unbounded read in wait_for so a stalled/uncooperative peer
+    # cannot hang the test indefinitely (see issue #71).
+    msg2 = await asyncio.wait_for(read_frame(reader), timeout=2.0)
     initiator.read_handshake_message(msg2)
     # msg3: -> s, se
     msg3 = initiator.write_handshake_message(b"")
