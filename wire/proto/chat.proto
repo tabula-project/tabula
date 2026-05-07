@@ -1,0 +1,186 @@
+// tabula.wire.v1 — wire schema for the Noise-framed chat channel.
+//
+// This file is the single source of truth for on-the-wire message
+// shapes exchanged between a Tabula chat client and server. See
+// `wire/proto/README.md` for the full v1 contract, framing format,
+// and regeneration instructions.
+//
+// IMPORTANT: gRPC is NOT used as the transport. The `service Chat`
+// block below is documentation-only — actual transport is raw TCP +
+// Noise XX + length-prefixed serialized `ClientFrame` / `ServerFrame`
+// bytes. See parent epic #13 for the full architecture.
+//
+// VERSIONING: v1 is frozen once merged. Only add new fields with new
+// numbers; never repurpose. Field numbers 100+ in each `oneof` are
+// reserved for future use.
+
+syntax = "proto3";
+
+package tabula.wire.v1;
+
+// ---------------------------------------------------------------------------
+// Service block (documentation-only)
+// ---------------------------------------------------------------------------
+// gRPC is NOT the transport. This block exists so readers can see the
+// intended bidirectional-stream shape. Actual transport: raw TCP + Noise
+// XX + length-prefixed proto.
+
+service Chat {
+  // Single bidirectional stream per Noise session.
+  rpc Session(stream ClientFrame) returns (stream ServerFrame);
+}
+
+// ---------------------------------------------------------------------------
+// Protocol version
+// ---------------------------------------------------------------------------
+// The wire-level protocol version. Bumped only on breaking changes.
+// v1 contract is frozen; new fields land as additive changes within v1.
+//
+// Carried in `Hello.protocol_version` so the server can reject mismatched
+// clients before allocating session state.
+
+// ---------------------------------------------------------------------------
+// Client → Server frames
+// ---------------------------------------------------------------------------
+
+message ClientFrame {
+  oneof payload {
+    Hello hello = 1;
+    UserMessage user_message = 2;
+    EndSession end = 3;
+    // Field numbers 100+ reserved for future variants.
+  }
+  reserved 100 to 199;
+}
+
+// First frame the client sends after the Noise handshake completes.
+// The server validates `protocol_version` against its own and either
+// answers with `Welcome` or closes with `ErrorFrame { code = ... }`.
+message Hello {
+  // Wire protocol version. Currently 1. The server MUST reject any
+  // value it does not understand.
+  uint32 protocol_version = 1;
+
+  // Free-form client identity hint (e.g. CLI name + version, hostname).
+  // Not authenticated — Noise static-key pinning is the trust boundary.
+  // Used purely for server-side audit logs.
+  string client_identity = 2;
+
+  // Optional opaque token; reserved for future auth schemes. Servers in
+  // v1 ignore this field.
+  bytes auth_token = 3;
+}
+
+// One user-authored message within an established session.
+message UserMessage {
+  // Plaintext utterance from the user. UTF-8.
+  string text = 1;
+
+  // Optional client-generated turn id (e.g. ULID) for correlating
+  // streamed assistant tokens back to a request. Echoed in
+  // `AssistantToken.turn_id` and `AssistantTurnEnd.turn_id`.
+  string turn_id = 2;
+}
+
+// Client-initiated graceful shutdown of the session. Server should
+// finish any in-flight assistant turn, send `AssistantTurnEnd`, and
+// close the Noise stream.
+message EndSession {
+  // Optional human-readable reason for the audit log. May be empty.
+  string reason = 1;
+}
+
+// ---------------------------------------------------------------------------
+// Server → Client frames
+// ---------------------------------------------------------------------------
+
+message ServerFrame {
+  oneof payload {
+    Welcome welcome = 1;
+    AssistantToken token = 2;        // streamed; many per turn
+    AssistantTurnEnd turn_end = 3;
+    ErrorFrame error = 4;
+    // Field numbers 100+ reserved for future variants.
+  }
+  reserved 100 to 199;
+}
+
+// Sent once after `Hello` is accepted. Confirms the session is live.
+message Welcome {
+  // Free-form server identity hint (e.g. enclave hostname, build sha).
+  // Not authenticated — Noise static-key pinning is the trust boundary.
+  string server_identity = 1;
+
+  // Server-assigned session id (e.g. ULID). Used by both sides for
+  // logging and by the client to disambiguate concurrent sessions.
+  string session_id = 2;
+
+  // Echo of the protocol version the server selected. In v1 this MUST
+  // equal `Hello.protocol_version`. Future versions may negotiate.
+  uint32 protocol_version = 3;
+}
+
+// One streamed chunk of an assistant turn. Many of these arrive
+// in sequence, terminated by an `AssistantTurnEnd`.
+message AssistantToken {
+  // The text chunk. Concatenating `text` across all tokens of a turn,
+  // in `sequence` order, yields the full assistant utterance.
+  string text = 1;
+
+  // 0-based monotonically increasing index within the current turn.
+  // Clients MUST detect gaps and treat them as a protocol error.
+  uint64 sequence = 2;
+
+  // Echo of `UserMessage.turn_id` if the client supplied one. Allows
+  // correlating streamed tokens back to a request when a future
+  // version permits multiple in-flight turns. v1 has at most one.
+  string turn_id = 3;
+}
+
+// Marks the end of an assistant turn. After this frame the server
+// is idle until the next `UserMessage` (or `EndSession`).
+message AssistantTurnEnd {
+  // Why the turn ended. Mirrors common LLM stop-reason taxonomies.
+  enum FinishReason {
+    FINISH_REASON_UNSPECIFIED = 0;
+    FINISH_REASON_STOP = 1;          // model produced its end token
+    FINISH_REASON_LENGTH = 2;        // token budget exhausted
+    FINISH_REASON_USER_CANCELED = 3; // client interrupted (future)
+    FINISH_REASON_ERROR = 4;         // see paired `ErrorFrame`
+  }
+
+  FinishReason finish_reason = 1;
+
+  // Echo of `UserMessage.turn_id` if the client supplied one.
+  string turn_id = 2;
+}
+
+// Out-of-band error. May be sent at any time after the handshake
+// (including in place of `Welcome` to reject `Hello`). The server
+// SHOULD close the Noise stream after a fatal error.
+message ErrorFrame {
+  // Wire-level error codes. Names are stable: tabula_wire.errors maps
+  // exception types to these by name (see #36). Integer values mirror
+  // the client exit-code table (PROTOCOL=2, CLAUDE_CRASHED=3,
+  // CLAUDE_TIMEOUT=4, AT_CAPACITY=5, INTERNAL=6); 0 is the proto3
+  // default (UNSPECIFIED), and 1 is reserved for future OK/CANCELED
+  // semantics.
+  enum Code {
+    UNSPECIFIED = 0;
+    // Reserved for future OK / CANCELED semantics.
+    reserved 1;
+    PROTOCOL = 2;        // protocol violation: bad version, malformed frame, oversize, malformed handshake
+    CLAUDE_CRASHED = 3;  // claude CLI crashed / non-zero exit
+    CLAUDE_TIMEOUT = 4;  // claude CLI exceeded its turn deadline
+    AT_CAPACITY = 5;     // server refused: too many concurrent sessions
+    INTERNAL = 6;        // server-side bug or unexpected condition
+  }
+
+  Code code = 1;
+
+  // Human-readable message. Safe to log; MUST NOT contain secrets.
+  string message = 2;
+
+  // Optional turn id this error pertains to, when applicable.
+  string turn_id = 3;
+}
