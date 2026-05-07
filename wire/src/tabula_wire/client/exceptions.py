@@ -10,13 +10,14 @@ This is the single canonical hierarchy reconciled across #27 (dialer) and
 Connection / handshake hierarchy::
 
     ClientError
-    +-- ConnectTimeout       (TCP open or handshake exceeded the deadline)
-    +-- ConnectRefused       (peer actively refused the TCP connection)
-    +-- DnsError             (host could not be resolved)
-    +-- ServerKeyMismatch    (handshake completed but pubkey != pinned)
-    +-- ProtocolError        (decrypt failure, malformed proto, framing
-                              violation, oversize frame, mid-stream EOF)
-    +-- ServerDisconnected   (peer closed the transport mid-session)
+    +-- ConnectError             (base for connect-phase failures)
+    |   +-- ConnectTimeout       (TCP open or handshake exceeded the deadline)
+    |   +-- ConnectRefused       (peer actively refused the TCP connection)
+    |   +-- DnsError             (host could not be resolved)
+    +-- ServerKeyMismatch        (handshake completed but pubkey != pinned)
+    +-- ProtocolError            (decrypt failure, malformed proto, framing
+                                  violation, oversize frame, mid-stream EOF)
+    +-- ServerDisconnected       (peer closed the transport mid-session)
 
 Pinning-store hierarchy (added in #54)::
 
@@ -42,15 +43,24 @@ class ClientError(Exception):
     """Base class for all errors raised by ``tabula_wire.client``."""
 
 
-class ConnectTimeout(ClientError):
+class ConnectError(ClientError):
+    """Base class for connect-phase failures (TCP open + DNS).
+
+    Concrete subclasses: :class:`ConnectTimeout`, :class:`ConnectRefused`,
+    :class:`DnsError`. Does not include handshake-phase failures
+    (:class:`ServerKeyMismatch`, :class:`ProtocolError`).
+    """
+
+
+class ConnectTimeout(ConnectError):
     """The dial did not complete (TCP open + handshake) before the deadline."""
 
 
-class ConnectRefused(ClientError):
+class ConnectRefused(ConnectError):
     """The OS reported ``ECONNREFUSED`` (or equivalent) on dial."""
 
 
-class DnsError(ClientError):
+class DnsError(ConnectError):
     """The host could not be resolved."""
 
 
@@ -112,6 +122,7 @@ class InvalidPubkeyError(PinningError, ValueError):
 __all__ = [
     # Connection / handshake (#27)
     "ClientError",
+    "ConnectError",
     "ConnectTimeout",
     "ConnectRefused",
     "DnsError",
