@@ -184,3 +184,28 @@ def test_initiator_rejects_wrong_local_static_type() -> None:
     """``local_static`` must be a :class:`SecretKey` from PR #46, not raw bytes."""
     with pytest.raises(TypeError):
         XXInitiator(local_static=b"\x00" * 32)  # type: ignore[arg-type]
+
+
+def test_handshake_error_is_canonical_wire_error() -> None:
+    """``HandshakeError`` is the same class regardless of import path (issue #67).
+
+    Per the typed exception hierarchy in #36, ``HandshakeError`` lives in
+    ``tabula_wire.errors`` as a ``WireError`` subclass. The crypto module
+    re-exports the same class object so that consumers calling
+    ``from tabula_wire.crypto import HandshakeError`` get a ``WireError`` and
+    will be caught by ``except WireError:`` at the session loop's top frame.
+
+    Regression guard for the duplicate-class bug where ``noise_xx.py`` had
+    its own ``class HandshakeError(Exception)`` shadowing the canonical one.
+    """
+    from tabula_wire.crypto import HandshakeError as crypto_he
+    from tabula_wire.crypto.noise_xx import HandshakeError as noise_he
+    from tabula_wire.errors import HandshakeError as errors_he, WireError
+
+    # All three import paths must resolve to the SAME class object.
+    assert crypto_he is errors_he
+    assert noise_he is errors_he
+
+    # And it must participate in the WireError hierarchy.
+    assert issubclass(errors_he, WireError)
+    assert isinstance(errors_he("boom"), WireError)

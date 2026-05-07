@@ -47,15 +47,9 @@ from dissononce.processing.impl.handshakestate import HandshakeState
 from dissononce.processing.impl.symmetricstate import SymmetricState
 
 from tabula_wire.crypto.keys import PUBLIC_KEY_BYTES, PublicKey, SecretKey
+from tabula_wire.errors import HandshakeError
 
-
-class HandshakeError(Exception):
-    """Raised on any handshake-phase failure.
-
-    Wraps low-level dissononce decryption / state errors and pin-mismatch
-    errors with a consistent type so the server/client frame loops can
-    translate them into protocol-level error frames.
-    """
+__all__ = ["HandshakeError", "XXInitiator", "XXResponder"]
 
 
 def _new_handshake_state() -> HandshakeState:
