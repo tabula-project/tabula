@@ -159,14 +159,21 @@ message AssistantTurnEnd {
 // (including in place of `Welcome` to reject `Hello`). The server
 // SHOULD close the Noise stream after a fatal error.
 message ErrorFrame {
+  // Wire-level error codes. Names are stable: tabula_wire.errors maps
+  // exception types to these by name (see #36). Integer values mirror
+  // the client exit-code table (PROTOCOL=2, CLAUDE_CRASHED=3,
+  // CLAUDE_TIMEOUT=4, AT_CAPACITY=5, INTERNAL=6); 0 is the proto3
+  // default (UNSPECIFIED), and 1 is reserved for future OK/CANCELED
+  // semantics.
   enum Code {
-    CODE_UNSPECIFIED = 0;
-    CODE_PROTOCOL_VERSION_UNSUPPORTED = 1;
-    CODE_MALFORMED_FRAME = 2;
-    CODE_INTERNAL = 3;
-    CODE_SUBPROCESS_FAILED = 4;       // claude CLI crashed / non-zero exit
-    CODE_RATE_LIMITED = 5;
-    CODE_UNAUTHORIZED = 6;            // reserved; v1 does not authenticate
+    UNSPECIFIED = 0;
+    // Reserved for future OK / CANCELED semantics.
+    reserved 1;
+    PROTOCOL = 2;        // protocol violation: bad version, malformed frame, oversize, malformed handshake
+    CLAUDE_CRASHED = 3;  // claude CLI crashed / non-zero exit
+    CLAUDE_TIMEOUT = 4;  // claude CLI exceeded its turn deadline
+    AT_CAPACITY = 5;     // server refused: too many concurrent sessions
+    INTERNAL = 6;        // server-side bug or unexpected condition
   }
 
   Code code = 1;

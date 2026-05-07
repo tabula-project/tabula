@@ -96,20 +96,18 @@ class ErrorFrame(_message.Message):
     __slots__ = ("code", "message", "turn_id")
     class Code(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
         __slots__ = ()
-        CODE_UNSPECIFIED: _ClassVar[ErrorFrame.Code]
-        CODE_PROTOCOL_VERSION_UNSUPPORTED: _ClassVar[ErrorFrame.Code]
-        CODE_MALFORMED_FRAME: _ClassVar[ErrorFrame.Code]
-        CODE_INTERNAL: _ClassVar[ErrorFrame.Code]
-        CODE_SUBPROCESS_FAILED: _ClassVar[ErrorFrame.Code]
-        CODE_RATE_LIMITED: _ClassVar[ErrorFrame.Code]
-        CODE_UNAUTHORIZED: _ClassVar[ErrorFrame.Code]
-    CODE_UNSPECIFIED: ErrorFrame.Code
-    CODE_PROTOCOL_VERSION_UNSUPPORTED: ErrorFrame.Code
-    CODE_MALFORMED_FRAME: ErrorFrame.Code
-    CODE_INTERNAL: ErrorFrame.Code
-    CODE_SUBPROCESS_FAILED: ErrorFrame.Code
-    CODE_RATE_LIMITED: ErrorFrame.Code
-    CODE_UNAUTHORIZED: ErrorFrame.Code
+        UNSPECIFIED: _ClassVar[ErrorFrame.Code]
+        PROTOCOL: _ClassVar[ErrorFrame.Code]
+        CLAUDE_CRASHED: _ClassVar[ErrorFrame.Code]
+        CLAUDE_TIMEOUT: _ClassVar[ErrorFrame.Code]
+        AT_CAPACITY: _ClassVar[ErrorFrame.Code]
+        INTERNAL: _ClassVar[ErrorFrame.Code]
+    UNSPECIFIED: ErrorFrame.Code
+    PROTOCOL: ErrorFrame.Code
+    CLAUDE_CRASHED: ErrorFrame.Code
+    CLAUDE_TIMEOUT: ErrorFrame.Code
+    AT_CAPACITY: ErrorFrame.Code
+    INTERNAL: ErrorFrame.Code
     CODE_FIELD_NUMBER: _ClassVar[int]
     MESSAGE_FIELD_NUMBER: _ClassVar[int]
     TURN_ID_FIELD_NUMBER: _ClassVar[int]

@@ -100,7 +100,7 @@ def test_client_frame_unset_payload_roundtrip() -> None:
     """A ClientFrame with no oneof set MUST roundtrip without raising.
 
     Servers should treat this as a malformed frame and respond with
-    ErrorFrame{CODE_MALFORMED_FRAME}, but the proto layer itself
+    ErrorFrame{code=PROTOCOL}, but the proto layer itself
     must accept the bytes.
     """
     frame = ClientFrame()
@@ -163,7 +163,7 @@ def test_server_frame_assistant_turn_end_roundtrip() -> None:
 def test_server_frame_error_roundtrip() -> None:
     frame = ServerFrame(
         error=ErrorFrame(
-            code=ErrorFrame.CODE_PROTOCOL_VERSION_UNSUPPORTED,
+            code=ErrorFrame.PROTOCOL,
             message="server speaks v1; client requested v999",
             turn_id="",
         )
@@ -171,7 +171,7 @@ def test_server_frame_error_roundtrip() -> None:
     decoded = _roundtrip_server(frame)
     assert decoded == frame
     assert decoded.WhichOneof("payload") == "error"
-    assert decoded.error.code == ErrorFrame.CODE_PROTOCOL_VERSION_UNSUPPORTED
+    assert decoded.error.code == ErrorFrame.PROTOCOL
     assert decoded.error.message == "server speaks v1; client requested v999"
 
 
@@ -207,13 +207,12 @@ def test_finish_reason_enum_values_roundtrip(reason: int) -> None:
 @pytest.mark.parametrize(
     "code",
     [
-        ErrorFrame.CODE_UNSPECIFIED,
-        ErrorFrame.CODE_PROTOCOL_VERSION_UNSUPPORTED,
-        ErrorFrame.CODE_MALFORMED_FRAME,
-        ErrorFrame.CODE_INTERNAL,
-        ErrorFrame.CODE_SUBPROCESS_FAILED,
-        ErrorFrame.CODE_RATE_LIMITED,
-        ErrorFrame.CODE_UNAUTHORIZED,
+        ErrorFrame.UNSPECIFIED,
+        ErrorFrame.PROTOCOL,
+        ErrorFrame.CLAUDE_CRASHED,
+        ErrorFrame.CLAUDE_TIMEOUT,
+        ErrorFrame.AT_CAPACITY,
+        ErrorFrame.INTERNAL,
     ],
 )
 def test_error_code_enum_values_roundtrip(code: int) -> None:

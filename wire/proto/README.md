@@ -58,7 +58,7 @@ A breaking change requires `tabula.wire.v2` (a new proto file and a
 new `package` line). The wire-level protocol version is carried in
 [`Hello.protocol_version`](./chat.proto) and echoed in
 `Welcome.protocol_version` so both sides can detect mismatch and
-respond with `ErrorFrame { CODE_PROTOCOL_VERSION_UNSUPPORTED }`.
+respond with `ErrorFrame { code = PROTOCOL }`.
 
 The Python constant `tabula_wire.proto.v1.PROTOCOL_VERSION` is the
 canonical value to send and to validate against.
@@ -216,7 +216,7 @@ Each direction of the Noise transport carries a sequence of frames.
 
 - `length` is a 4-byte **big-endian** unsigned integer.
 - A length of 0 is invalid; close the session with
-  `ErrorFrame { CODE_MALFORMED_FRAME }`.
+  `ErrorFrame { code = PROTOCOL }`.
 - A reasonable upper bound (e.g. 1 MiB) MUST be enforced to bound
   memory; values above the bound are a malformed frame.
 - The `<length>` bytes are the output of
