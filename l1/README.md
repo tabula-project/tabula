@@ -8,9 +8,16 @@ The authoritative storage layer. Entities, decisions, observations, and all type
 
 ```
 l1/
-├── README.md                ← this file
-├── frontmatter-spec.md      ← canonical frontmatter schema (YAML block per file)
-└── encryption.md            ← age encryption + audience tier pattern
+├── README.md                  ← this file
+├── substrate-invariant.md     ← plain text + git as the foundation
+├── frontmatter-spec.md        ← canonical frontmatter schema (YAML block per file)
+├── identity-model.md          ← ULIDs, entity slugs, external IDs
+├── encryption.md              ← age encryption + audience tier pattern
+├── connection-points.md       ← git/web/API/IPFS/email/print access surfaces
+├── replication.md             ← multi-jurisdiction git replicas + industrial archival
+├── capture-recall.md          ← capture/recall API + multi-machine bootstrap
+└── reference/
+    └── strata-patterns.md     ← L1-adapter patterns from Luce strata (reference)
 ```
 
 ## Content types (schema vocabulary)

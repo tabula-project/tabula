@@ -45,7 +45,7 @@ Not in Tabula: any app's user surface, any app's business logic, any app's brand
 
 ### L0 — Sovereign compute
 
-> **Detailed reference:** [`l0/README.md`](l0/README.md), [`l0/docs/model-routing.md`](l0/docs/model-routing.md), [`l0/docs/router.md`](l0/docs/router.md)
+> **Detailed reference:** [`l0/README.md`](l0/README.md), [`l0/docs/model-routing.md`](l0/docs/model-routing.md), [`l0/docs/router.md`](l0/docs/router.md), [`l0/router/README.md`](l0/router/README.md) (router design contract)
 
 A unified router with three properties:
 
@@ -57,7 +57,7 @@ A unified router with three properties:
 
 ### L1 — Substrate
 
-> **Detailed specs:** [`l1/README.md`](l1/README.md), [`l1/frontmatter-spec.md`](l1/frontmatter-spec.md), [`l1/encryption.md`](l1/encryption.md)
+> **Detailed specs:** [`l1/README.md`](l1/README.md), [`l1/substrate-invariant.md`](l1/substrate-invariant.md), [`l1/frontmatter-spec.md`](l1/frontmatter-spec.md), [`l1/identity-model.md`](l1/identity-model.md), [`l1/encryption.md`](l1/encryption.md), [`l1/connection-points.md`](l1/connection-points.md), [`l1/replication.md`](l1/replication.md), [`l1/capture-recall.md`](l1/capture-recall.md)
 
 Markdown with YAML frontmatter, stored in git. Tabula owns the *frontmatter spec* and the *schema vocabulary*; consumers own their corpora.
 
@@ -69,13 +69,15 @@ Markdown with YAML frontmatter, stored in git. Tabula owns the *frontmatter spec
 
 ### L3 — Knowledge graph
 
-> **Architecture context:** [`docs/five-layer-architecture.md`](docs/five-layer-architecture.md)
+> **Detailed spec:** [`l3/README.md`](l3/README.md). **Architecture context:** [`docs/five-layer-architecture.md`](docs/five-layer-architecture.md)
 
 Graphiti over PostgreSQL + Apache AGE + pgvector. Hybrid search (semantic + Cypher + full-text), entity reconciliation, MCP tool-call interface for agents.
 
 The graph is *derived*, not authoritative — rebuildable from L1 + L2 on any future infrastructure. Re-indexing is a chore; never a load-bearing data dependency.
 
 ### Adapter framework (L2 ↔ L1)
+
+> **Detailed spec:** [`etl/README.md`](etl/README.md), [`etl/path-c-pattern.md`](etl/path-c-pattern.md)
 
 L2 logs raw events (Signal messages, Kitsu API responses, Slack notifications, MCP tool calls). Tabula ships an *adapter framework* — a pattern for distillation pipelines that promote meaningful patterns to typed L1 entries. Each consumer writes its own adapters; the framework handles batching, idempotency, dedup, and audit.
 
