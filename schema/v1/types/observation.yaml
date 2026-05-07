@@ -12,15 +12,14 @@ description: |
 allOf:
   - $ref: ../frontmatter-base.yaml
   - type: object
-    properties:
-      type:
-        const: observation
-
     required:
       - title
       - body_summary
 
     properties:
+      type:
+        const: observation
+
       title:
         type: string
         description: Short headline (one line, < 100 chars).

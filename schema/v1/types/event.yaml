@@ -13,15 +13,14 @@ description: |
 allOf:
   - $ref: ../frontmatter-base.yaml
   - type: object
-    properties:
-      type:
-        const: event
-
     required:
       - title
       - when
 
     properties:
+      type:
+        const: event
+
       title:
         type: string
         description: Short headline.

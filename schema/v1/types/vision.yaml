@@ -17,15 +17,14 @@ description: |
 allOf:
   - $ref: ../frontmatter-base.yaml
   - type: object
-    properties:
-      type:
-        const: vision
-
     required:
       - canonical_id
       - title
 
     properties:
+      type:
+        const: vision
+
       canonical_id:
         type: string
         pattern: ^vision:[a-z0-9-]+$

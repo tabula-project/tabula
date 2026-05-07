@@ -12,10 +12,6 @@ description: |
 allOf:
   - $ref: ../frontmatter-base.yaml
   - type: object
-    properties:
-      type:
-        const: decision
-
     required:
       - decision
       - context
@@ -24,6 +20,9 @@ allOf:
       - rationale
 
     properties:
+      type:
+        const: decision
+
       decision:
         type: string
         description: One-sentence summary of what changed.
