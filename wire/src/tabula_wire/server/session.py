@@ -174,7 +174,7 @@ class _SessionLogAdapter(logging.LoggerAdapter):
 
 async def _send_error(
     send_frame: SendFrame,
-    code: ErrorCode,
+    code: Any,
     message: str,
     log: logging.LoggerAdapter | logging.Logger,
 ) -> None:
@@ -189,7 +189,7 @@ async def _send_error(
     except Exception:  # noqa: BLE001 - intentional best-effort send
         log.warning(
             "failed to deliver ErrorFrame(code=%s) to client; transport likely closed",
-            code.value,
+            int(code),
         )
 
 
@@ -223,12 +223,26 @@ async def _read_one_frame(
         return None
 
 
+def _client_payload(frame: ClientFrame) -> Any:
+    """Return the populated oneof payload of a ``ClientFrame``.
+
+    Real protobuf bindings (#45) use ``WhichOneof("payload")`` plus
+    ``getattr`` to discriminate the populated branch, instead of the
+    hand-written ``payload()`` method that the pre-#45 stubs offered.
+    Returns ``None`` if no payload is set.
+    """
+    which = frame.WhichOneof("payload")
+    if which is None:
+        return None
+    return getattr(frame, which)
+
+
 async def _stream_one_turn(
     claude: ClaudeProcessProtocol,
     user_text: str,
     send_frame: SendFrame,
     log: logging.LoggerAdapter,
-) -> FinishReason:
+) -> Any:
     """Drive one (UserMessage → token stream → TurnEnd) cycle.
 
     Returns the finish reason that was sent to the client. Raises only if
@@ -242,7 +256,7 @@ async def _stream_one_turn(
         async for chunk in claude.stream_tokens():
             await send_frame(
                 ServerFrame(
-                    assistant_token=AssistantToken(text=chunk, sequence=sequence)
+                    token=AssistantToken(text=chunk, sequence=sequence)
                 )
             )
             sequence += 1
@@ -259,13 +273,17 @@ async def _stream_one_turn(
             str(exc) or "claude subprocess crashed",
             log,
         )
-        return FinishReason.ERROR
+        return FinishReason.FINISH_REASON_ERROR
 
     await send_frame(
-        ServerFrame(assistant_turn_end=AssistantTurnEnd(finish_reason=FinishReason.STOP))
+        ServerFrame(
+            turn_end=AssistantTurnEnd(
+                finish_reason=FinishReason.FINISH_REASON_STOP
+            )
+        )
     )
     log.info("turn complete (%d token(s))", sequence)
-    return FinishReason.STOP
+    return FinishReason.FINISH_REASON_STOP
 
 
 async def handle_session(
@@ -305,7 +323,7 @@ async def handle_session(
             log.info("client disconnected before sending Hello")
             return
 
-        payload = first.payload()
+        payload = _client_payload(first)
         if not isinstance(payload, Hello):
             log.warning(
                 "first frame was %s, expected Hello; closing",
@@ -340,7 +358,8 @@ async def handle_session(
             ServerFrame(
                 welcome=Welcome(
                     session_id=session_id,
-                    server_version=config.server_version,
+                    server_identity=config.server_version,
+                    protocol_version=config.protocol_version,
                 )
             )
         )
@@ -357,7 +376,7 @@ async def handle_session(
                 log.info("transport EOF; tearing down")
                 return
 
-            payload = frame.payload()
+            payload = _client_payload(frame)
             if isinstance(payload, EndSession):
                 log.info("client requested EndSession")
                 return
@@ -366,7 +385,7 @@ async def handle_session(
                 finish = await _stream_one_turn(
                     claude, payload.text, send_frame, log
                 )
-                if finish == FinishReason.ERROR:
+                if finish == FinishReason.FINISH_REASON_ERROR:
                     # Subprocess crashed; tear down rather than try to
                     # recover. The client has already been notified.
                     return

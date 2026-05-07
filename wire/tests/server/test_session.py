@@ -68,7 +68,7 @@ def _user(text: str) -> ClientFrame:
 
 
 def _end() -> ClientFrame:
-    return ClientFrame(end_session=EndSession())
+    return ClientFrame(end=EndSession())
 
 
 # ---------------------------------------------------------------------------
@@ -99,25 +99,25 @@ async def test_happy_path_two_turns_and_end_session() -> None:
     out = chan.outbox
 
     # Welcome first
-    assert isinstance(out[0].payload(), Welcome)
+    assert out[0].WhichOneof("payload") == "welcome"
     welcome = out[0].welcome
     assert welcome is not None
-    assert welcome.server_version == "tabula-server/test"
+    assert welcome.server_identity == "tabula-server/test"
     assert welcome.session_id  # non-empty UUID
 
     # Turn 1: 2 tokens then turn end
-    assert out[1].assistant_token == AssistantToken(text="hello", sequence=0)
-    assert out[2].assistant_token == AssistantToken(text=" world", sequence=1)
-    assert out[3].assistant_turn_end == AssistantTurnEnd(
-        finish_reason=FinishReason.STOP
+    assert out[1].token == AssistantToken(text="hello", sequence=0)
+    assert out[2].token == AssistantToken(text=" world", sequence=1)
+    assert out[3].turn_end == AssistantTurnEnd(
+        finish_reason=FinishReason.FINISH_REASON_STOP
     )
 
     # Turn 2: 3 tokens then turn end (sequence resets)
-    assert out[4].assistant_token == AssistantToken(text="a", sequence=0)
-    assert out[5].assistant_token == AssistantToken(text="b", sequence=1)
-    assert out[6].assistant_token == AssistantToken(text="c", sequence=2)
-    assert out[7].assistant_turn_end == AssistantTurnEnd(
-        finish_reason=FinishReason.STOP
+    assert out[4].token == AssistantToken(text="a", sequence=0)
+    assert out[5].token == AssistantToken(text="b", sequence=1)
+    assert out[6].token == AssistantToken(text="c", sequence=2)
+    assert out[7].turn_end == AssistantTurnEnd(
+        finish_reason=FinishReason.FINISH_REASON_STOP
     )
     assert len(out) == 8
 
@@ -150,9 +150,9 @@ async def test_sequence_numbers_reset_each_turn() -> None:
     )
 
     tokens = [
-        f.assistant_token
+        f.token
         for f in chan.outbox
-        if f.assistant_token is not None
+        if f.WhichOneof("payload") == "token"
     ]
     assert [t.sequence for t in tokens] == [0, 0]
 
@@ -230,7 +230,7 @@ async def test_unexpected_mid_session_frame_returns_protocol_error() -> None:
 
     # Welcome, then ErrorFrame, then nothing.
     out = chan.outbox
-    assert isinstance(out[0].payload(), Welcome)
+    assert out[0].WhichOneof("payload") == "welcome"
     err = out[1].error
     assert err is not None
     assert err.code == ErrorCode.PROTOCOL
@@ -267,14 +267,14 @@ async def test_subprocess_crash_midturn_emits_error_and_tears_down() -> None:
 
     out = chan.outbox
     # Welcome, partial-1, partial-2, then ErrorFrame{CLAUDE_CRASHED}.
-    assert isinstance(out[0].payload(), Welcome)
-    assert out[1].assistant_token == AssistantToken(text="partial-1", sequence=0)
-    assert out[2].assistant_token == AssistantToken(text="partial-2", sequence=1)
+    assert out[0].WhichOneof("payload") == "welcome"
+    assert out[1].token == AssistantToken(text="partial-1", sequence=0)
+    assert out[2].token == AssistantToken(text="partial-2", sequence=1)
     err = out[-1].error
     assert err is not None
     assert err.code == ErrorCode.CLAUDE_CRASHED
     # No AssistantTurnEnd was sent — the turn ended in error.
-    assert all(f.assistant_turn_end is None for f in out)
+    assert all(f.WhichOneof("payload") != "turn_end" for f in out)
 
     assert proc.kill_count == 1
 
@@ -369,9 +369,9 @@ async def test_client_disconnect_midturn_kills_subprocess() -> None:
 
     # All four tokens + turn end must have been delivered before EOF read.
     tokens = [
-        f.assistant_token
+        f.token
         for f in chan.outbox
-        if f.assistant_token is not None
+        if f.WhichOneof("payload") == "token"
     ]
     assert [t.text for t in tokens] == ["a", "b", "c", "d"]
     assert proc.kill_count == 1
@@ -419,7 +419,7 @@ async def test_cancellation_propagates_and_kills_subprocess() -> None:
     # Let the session boot and start streaming a few tokens.
     for _ in range(20):
         await asyncio.sleep(0)
-    assert any(f.welcome for f in chan.outbox)
+    assert any(f.WhichOneof("payload") == "welcome" for f in chan.outbox)
 
     task.cancel()
     with pytest.raises(asyncio.CancelledError):
@@ -447,7 +447,7 @@ async def test_cleanup_runs_when_send_fails_after_welcome() -> None:
     real_send = chan.send_frame
 
     async def flaky_send(frame: ServerFrame) -> None:
-        if frame.welcome is not None:
+        if frame.WhichOneof("payload") == "welcome":
             await real_send(frame)
             welcome_seen.set()
             return
