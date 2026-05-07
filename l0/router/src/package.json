@@ -1,0 +1,35 @@
+{
+  "name": "@tabula/router",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Tabula L0 model router. Local-first, OSS-first, privacy-class-aware routing. Originally pi-router; vendored here as the canonical implementation.",
+  "keywords": [
+    "pi-package",
+    "pi-extension",
+    "model-router",
+    "oss-first",
+    "sovereign-ai"
+  ],
+  "license": "MIT",
+  "pi": {
+    "extensions": [
+      "./extension.ts"
+    ]
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "peerDependencies": {
+    "@mariozechner/pi-coding-agent": "*"
+  },
+  "devDependencies": {
+    "@mariozechner/pi-coding-agent": "^0.72.1",
+    "@types/better-sqlite3": "^7.6.10",
+    "@types/node": "^25.6.0",
+    "typescript": "^6.0.2"
+  },
+  "dependencies": {
+    "better-sqlite3": "^12.0.0"
+  }
+}

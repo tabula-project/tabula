@@ -1,8 +1,10 @@
-# Tabula L0 Router (reference: pi-router)
+# Tabula L0 Router
 
-> **Vendor status:** This is the spec for Tabula's L0 router, mirrored from `omniscia/pi-router` (the actively-developed reference implementation). Decision pending: should the router code itself live in this repo (`tabula/l0/router/src/`), or remain a separate repo Tabula consumers depend on?
+> **Vendored from `omniscia/pi-router` on 2026-05-07.** The canonical implementation now lives in this repo at [`src/`](src/). Future development happens here; `omniscia/pi-router` is preserved as a redirect.
 >
-> **Until decided**, the canonical implementation is at https://github.com/omniscia/pi-router. This document captures the design contract.
+> Package: `@tabula/router` (was `pi-router`).
+>
+> History: pi-router was the v0 implementation built before Tabula consolidated the substrate. Now that Tabula owns L0, the router code lives with the rest of L0.
 
 ---
 
