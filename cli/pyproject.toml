@@ -18,8 +18,13 @@ dependencies = [
   # `down` (#28) shells out to terraform and gcloud for portability; SDK
   # extras (google-cloud-compute) live in [project.optional-dependencies]
   # so test environments do not need GCP auth installed.
+  # `servers` (#32) delegates persistence to tabula_wire.client.pinning.
+  "tabula-wire",
   "typer>=0.12",
 ]
+
+[tool.uv.sources]
+tabula-wire = { path = "../wire" }
 
 [project.optional-dependencies]
 gcp-sdk = [

@@ -13,7 +13,7 @@ Subpackages:
 - ``tabula_wire.cli``     — top-level ``tabula`` CLI entrypoint (#46)
 - ``tabula_wire.framing`` — length-prefix codec (pending #55)
 - ``tabula_wire.server``  — responder side (pending #20 / #25)
-- ``tabula_wire.client``  — initiator side (pending #27 / #32)
+- ``tabula_wire.client``  — initiator side (#32 pinning store landed; dialer pending #27)
 
 This module has no side effects on import.
 
@@ -52,6 +52,13 @@ from tabula_wire.proto.v1 import (
     UserMessage,
     Welcome,
 )
+from tabula_wire.client import (
+    DuplicateLabelError,
+    InvalidPubkeyError,
+    PinningError,
+    ServerEntry,
+    UnknownLabelError,
+)
 
 __version__ = "0.1.0"
 
@@ -84,5 +91,11 @@ __all__ = [
     "ServerFrame",
     "UserMessage",
     "Welcome",
+    # Client pinning store (#32)
+    "DuplicateLabelError",
+    "InvalidPubkeyError",
+    "PinningError",
+    "ServerEntry",
+    "UnknownLabelError",
     "__version__",
 ]

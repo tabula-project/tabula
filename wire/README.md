@@ -8,7 +8,7 @@ Transport layer for Tabula: Noise-XX wire protocol, static-key tooling, the
 
 ## Status
 
-Bootstrapping. Three deliverables have landed so far:
+Bootstrapping. Four deliverables have landed so far:
 
 - **Static-key tooling** (#46): `tabula keygen` + `tabula_wire.crypto.keys`
   canonical loader/saver, required by both client and server for the Noise XX
@@ -19,6 +19,9 @@ Bootstrapping. Three deliverables have landed so far:
   `exception_to_error_code()` maps exception types to `ErrorFrame.Code`.
 - **`tabula.wire.v1` protobuf schema** (#16): generated bindings shipped at
   `tabula_wire.proto.v1`, consumed by the responder (#20) and dialer (#27).
+- **Client pubkey pinning store** (#32): `tabula_wire.client.pinning` provides
+  the TOFU-refuse store at `~/.config/tabula/known_servers`. The CLI surface
+  (`tabula servers add/list/remove`) lives in `cli/src/tabula_cli/servers/`.
 
 ## Layout
 
@@ -55,14 +58,14 @@ wire/
 | `tabula_wire.proto.v1` | `tabula.wire.v1` schema + generated Python bindings | Implemented (#16) |
 | `tabula_wire.crypto` (Noise) | Vendored Noise XX implementation | Pending (#18) |
 | `tabula_wire.server` | TCP listener + Noise responder + frame loop + claude subprocess driver | Pending (#20, #22, #25) |
-| `tabula_wire.client` | TCP dialer + Noise initiator + frame loop + terminal UI | Pending (#27, #32) |
+| `tabula_wire.client.pinning` | Client-side server pubkey pinning store | Implemented (#32) |
+| `tabula_wire.client` (dialer) | TCP dialer + Noise initiator + frame loop + terminal UI | Pending (#27) |
 
 Future scope (separate sub-issues, not landed here):
 
 - `tabula_wire.crypto.noise_xx` — Noise XX wrapper around the chosen library (#18).
 - `tabula_wire.server` / `tabula_wire.client` — TCP transport + length-prefixed framing (#55).
 - `tabula chat connect` subcommand (#29).
-- Pinning store (`tabula pin add/list/remove`, #32).
 
 ## Key file format (canonical, v1)
 
