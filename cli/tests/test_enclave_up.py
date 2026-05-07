@@ -345,14 +345,18 @@ class TestFailureModes:
 
 
 # --------------------------------------------------------------------------- #
-# Stub status subcommand (down lands in #28; ssh in #33)                      #
+# Status is now implemented (#30); confirm it is mounted and surfaces a       #
+# clean user-error exit when state.json is missing rather than the old        #
+# "not implemented yet" placeholder.                                          #
 # --------------------------------------------------------------------------- #
 
-class TestPlaceholderSubcommands:
-    @pytest.mark.parametrize("sub", ["status"])
-    def test_placeholders_exit_nonzero_with_message(
-        self, runner: CliRunner, sub: str
-    ) -> None:
-        result = runner.invoke(root_app, ["enclave", sub, "demo"])
-        assert result.exit_code != 0
-        assert "not implemented yet" in (result.stderr or "")
+class TestStatusMounted:
+    def test_status_is_a_real_command(self, runner: CliRunner) -> None:
+        # No state.json on disk for "missing-enclave-xyz" -> exit 2
+        # (user error per #30 exit-code taxonomy).
+        result = runner.invoke(
+            root_app, ["enclave", "status", "missing-enclave-xyz"]
+        )
+        assert result.exit_code == 2
+        # The error message points the operator at `tabula enclave up`.
+        assert "tabula enclave up" in (result.stderr or "")

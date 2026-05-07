@@ -5,7 +5,7 @@ Subcommands:
 - ``up``     -- provision an enclave (issue #26, see :mod:`.up`)
 - ``down``   -- tear an enclave down (issue #28, see :mod:`.down`)
 - ``ssh``    -- IAP-tunneled shell into a role VM (issue #33, see :mod:`.ssh`)
-- ``status`` -- placeholder, tracked under epic #12
+- ``status`` -- read-only health report (issue #30, see :mod:`.status`)
 
 The package re-exports the down-side public API (``DownOptions``,
 ``Leftover``, ``TerraformResult``, ``enclave_down``, the ``EXIT_*``
@@ -28,6 +28,7 @@ import typer
 
 from tabula_cli.enclave import down as down_mod
 from tabula_cli.enclave import ssh as ssh_mod
+from tabula_cli.enclave import status as status_mod
 from tabula_cli.enclave import up as up_mod
 from tabula_cli.enclave.down import (
     DESTROY_WARNING,
@@ -101,15 +102,11 @@ def _ssh_cmd(
     raise typer.Exit(code=rc)
 
 
-@app.command("status")
-def status(name: str = typer.Argument(...)) -> None:
-    """Report enclave status. Tracked separately under epic #12."""
-    typer.echo(
-        "tabula enclave status is tracked as a separate sub-issue "
-        "under epic #12 and is not implemented yet.",
-        err=True,
-    )
-    raise typer.Exit(code=2)
+# Mount the ``status`` Typer-native command (issue #30).
+app.command(
+    "status",
+    help="Report enclave health and per-VM state (read-only).",
+)(status_mod.status)
 
 
 # --------------------------------------------------------------------------- #
