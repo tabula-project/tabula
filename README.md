@@ -12,6 +12,9 @@ Tabula is open-source infrastructure shared by a small set of independent applic
 
 - **[SPEC.md](SPEC.md)** — full architecture and design intent
 - **[CONTRIBUTING.md](CONTRIBUTING.md)** — how decisions are made; the steward + RFC model
+- **[docs/five-layer-architecture.md](docs/five-layer-architecture.md)** — the L0–L4 substrate model (shared vs per-app)
+- **[l0/](l0/)** — sovereign compute: model registry, privacy-class routing, sleep API, reference deployment
+- **[l1/](l1/)** — substrate layer: frontmatter spec, encryption, substrate invariants
 - **[schema/](schema/)** — canonical content-type vocabulary (v1 in progress)
 
 ## Stewards (proposed)

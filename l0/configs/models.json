@@ -1,0 +1,161 @@
+{
+  "providers": {
+    "ollama": {
+      "baseUrl": "http://localhost:11434/v1",
+      "apiKey": "ollama",
+      "api": "openai-completions",
+      "compat": {
+        "supportsDeveloperRole": false,
+        "supportsReasoningEffort": false
+      },
+      "models": [
+        {
+          "id": "qwen3-coder:30b",
+          "name": "Qwen3-Coder 30B-A3B (local Ollama)",
+          "contextWindow": 262144,
+          "maxTokens": 16384,
+          "reasoning": false,
+          "input": ["text"],
+          "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0 }
+        },
+        {
+          "id": "qwen2.5-coder:7b",
+          "name": "Qwen2.5-Coder 7B (local Ollama, fast)",
+          "contextWindow": 32768,
+          "maxTokens": 8192,
+          "reasoning": false,
+          "input": ["text"],
+          "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0 }
+        },
+        {
+          "id": "qwen2.5:72b-instruct",
+          "name": "Qwen 2.5 72B Instruct (local Ollama, fallback)",
+          "contextWindow": 131072,
+          "maxTokens": 8192,
+          "reasoning": false,
+          "input": ["text"],
+          "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0 }
+        },
+        {
+          "id": "llama3.3:70b-instruct-q4_K_M",
+          "name": "Llama 3.3 70B Instruct (local Ollama)",
+          "contextWindow": 131072,
+          "maxTokens": 8192,
+          "reasoning": false,
+          "input": ["text"],
+          "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0 }
+        }
+      ]
+    },
+    "mlx": {
+      "baseUrl": "http://localhost:8081/v1",
+      "apiKey": "mlx",
+      "api": "openai-completions",
+      "compat": {
+        "supportsDeveloperRole": false,
+        "supportsReasoningEffort": false,
+        "supportsUsageInStreaming": false
+      },
+      "models": [
+        {
+          "id": "mlx-community/Llama-3.3-70B-Instruct-4bit",
+          "name": "Llama 3.3 70B Instruct 4-bit (local MLX, fast)",
+          "contextWindow": 131072,
+          "maxTokens": 8192,
+          "reasoning": false,
+          "input": ["text"],
+          "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0 }
+        },
+        {
+          "id": "mlx-community/Qwen3-Coder-30B-A3B-Instruct-4bit",
+          "name": "Qwen3-Coder 30B-A3B 4-bit (local MLX, primary)",
+          "contextWindow": 262144,
+          "maxTokens": 16384,
+          "reasoning": false,
+          "input": ["text"],
+          "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0 }
+        }
+      ]
+    },
+    "fireworks": {
+      "baseUrl": "https://api.fireworks.ai/inference/v1",
+      "apiKey": "FIREWORKS_API_KEY",
+      "authHeader": true,
+      "api": "openai-completions",
+      "models": [
+        {
+          "id": "accounts/fireworks/models/kimi-k2p6",
+          "name": "Kimi K2.6 (Fireworks, OSS frontier)",
+          "reasoning": false,
+          "input": ["text", "image"],
+          "contextWindow": 262144,
+          "maxTokens": 16384,
+          "cost": { "input": 0.95, "output": 4.00, "cacheRead": 0.16, "cacheWrite": 0 }
+        },
+        {
+          "id": "accounts/fireworks/models/deepseek-v4-pro",
+          "name": "DeepSeek V4 Pro (Fireworks, 1M ctx)",
+          "reasoning": false,
+          "input": ["text"],
+          "contextWindow": 1048576,
+          "maxTokens": 16384,
+          "cost": { "input": 1.74, "output": 3.48, "cacheRead": 0.145, "cacheWrite": 0 }
+        },
+        {
+          "id": "accounts/fireworks/models/kimi-k2p5",
+          "name": "Kimi K2.5 (Fireworks, prior gen, cheaper)",
+          "reasoning": false,
+          "input": ["text"],
+          "contextWindow": 262144,
+          "maxTokens": 16384,
+          "cost": { "input": 0.60, "output": 3.00, "cacheRead": 0.10, "cacheWrite": 0 }
+        },
+        {
+          "id": "accounts/fireworks/models/glm-5p1",
+          "name": "GLM 5.1 (Fireworks, reasoning)",
+          "reasoning": true,
+          "input": ["text"],
+          "contextWindow": 202752,
+          "maxTokens": 8192,
+          "cost": { "input": 1.40, "output": 4.40, "cacheRead": 0.26, "cacheWrite": 0 }
+        },
+        {
+          "id": "accounts/fireworks/models/glm-5",
+          "name": "GLM 5 (Fireworks, prior gen)",
+          "reasoning": false,
+          "input": ["text"],
+          "contextWindow": 202752,
+          "maxTokens": 8192,
+          "cost": { "input": 1.00, "output": 3.20, "cacheRead": 0.20, "cacheWrite": 0 }
+        }
+      ]
+    },
+    "cerebras": {
+      "baseUrl": "https://api.cerebras.ai/v1",
+      "apiKey": "CEREBRAS_API_KEY",
+      "authHeader": true,
+      "api": "openai-completions",
+      "models": [
+        {
+          "id": "qwen-3-235b-a22b-instruct-2507",
+          "name": "Qwen 3 235B Instruct (Cerebras, fast MoE general)",
+          "reasoning": false,
+          "input": ["text"],
+          "contextWindow": 131072,
+          "maxTokens": 16384,
+          "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0 }
+        },
+        {
+          "id": "llama3.1-8b",
+          "name": "Llama 3.1 8B (Cerebras, smallest, blazing fast)",
+          "reasoning": false,
+          "input": ["text"],
+          "contextWindow": 131072,
+          "maxTokens": 8192,
+          "reasoning_": "Free tier model. Tiny, fast. For trivial classification only.",
+          "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0 }
+        }
+      ]
+    }
+  }
+}

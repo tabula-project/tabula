@@ -1,0 +1,17 @@
+#!/usr/bin/env bash
+# Usage: mlx-switch <hf-repo-id>
+# Examples:
+#   mlx-switch mlx-community/Llama-3.3-70B-Instruct-4bit
+#   mlx-switch mlx-community/Qwen3-Coder-30B-A3B-Instruct-4bit
+set -euo pipefail
+MODEL="${1:-}"
+if [ -z "$MODEL" ]; then
+  echo "current: $(cat ~/.local/etc/mlx/current-model 2>/dev/null || echo none)"
+  echo "usage: mlx-switch <hf-repo-id>"
+  echo "cached models:"
+  ~/.local/bin/mlx_lm.manage --scan 2>/dev/null | tail -n +4
+  exit 0
+fi
+echo "$MODEL" > ~/.local/etc/mlx/current-model
+launchctl kickstart -k "gui/$(id -u)/com.user.mlx-lm" 2>/dev/null || true
+echo "switched to $MODEL — server reloading on port 8081 (give it ~30s for big models)"

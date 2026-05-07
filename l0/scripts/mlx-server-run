@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+set -euo pipefail
+MODEL=$(cat ~/.local/etc/mlx/current-model)
+exec ~/.local/bin/mlx_lm.server \
+  --model "$MODEL" \
+  --host 127.0.0.1 \
+  --port 8081 \
+  --log-level INFO

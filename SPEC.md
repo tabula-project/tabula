@@ -45,6 +45,8 @@ Not in Tabula: any app's user surface, any app's business logic, any app's brand
 
 ### L0 — Sovereign compute
 
+> **Detailed reference:** [`l0/README.md`](l0/README.md), [`l0/docs/model-routing.md`](l0/docs/model-routing.md), [`l0/docs/router.md`](l0/docs/router.md)
+
 A unified router with three properties:
 
 1. **Privacy-class routing.** Every prompt carries a class. `family_or_self` cannot leave owned infra; `project` may use cloud-OSS (Fireworks, Cerebras, Lambda) but never closed-frontier; `public` may use anything. Class is set per call, defaulted per consumer; misclassification is the security bug.
@@ -55,6 +57,8 @@ A unified router with three properties:
 
 ### L1 — Substrate
 
+> **Detailed specs:** [`l1/README.md`](l1/README.md), [`l1/frontmatter-spec.md`](l1/frontmatter-spec.md), [`l1/encryption.md`](l1/encryption.md)
+
 Markdown with YAML frontmatter, stored in git. Tabula owns the *frontmatter spec* and the *schema vocabulary*; consumers own their corpora.
 
 **Schema vocabulary (v1):** vision, person, place, event, project, tool, decision, observation, conversation. Drawn from Bower's content-type taxonomy + Luce's Decision Trace format + TWIN's typed-entity model. Each type has a frontmatter schema (required + optional fields). Adding a type = PR to Tabula.
@@ -64,6 +68,8 @@ Markdown with YAML frontmatter, stored in git. Tabula owns the *frontmatter spec
 **Encryption:** age (X25519 + ChaCha20-Poly1305) per-segment, audience-tiered. Frontmatter stays plaintext for queryability.
 
 ### L3 — Knowledge graph
+
+> **Architecture context:** [`docs/five-layer-architecture.md`](docs/five-layer-architecture.md)
 
 Graphiti over PostgreSQL + Apache AGE + pgvector. Hybrid search (semantic + Cypher + full-text), entity reconciliation, MCP tool-call interface for agents.
 
