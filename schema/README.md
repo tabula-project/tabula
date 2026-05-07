@@ -20,9 +20,15 @@ Canonical content-type vocabulary, versioned at `v1/`.
 
 Consumer-specific types live outside core. They follow the same frontmatter spec but aren't required of every adopter.
 
-- `schema/luce/` — `shot`, `sequence`, `task`
+- `schema/luce/` — `shot`, `sequence`, `task` (new types under `v1/types/`); `conservation_class` field on `decision` (under `v1/extensions/`)
 - `schema/bower/` — TBD
 - `schema/twin/` — TBD
+
+Extension namespaces support two patterns: **new types** under
+`schema/<consumer>/v1/types/<name>.yaml` (wholly new content types), and
+**field extensions** under `schema/<consumer>/v1/extensions/<core-type>.yaml`
+(optional fields added to a core type via `allOf` + `$ref`). See
+`schema/luce/README.md` for an example of each.
 
 ## Adding a type
 

@@ -41,12 +41,13 @@ Each `types/<name>.yaml` is a JSON Schema describing required and optional front
 Consumer-specific types live in extension namespaces, not core. They follow the same frontmatter base but aren't required of every adopter.
 
 ```
-schema/luce/v1/types/    — shot, sequence, task, doublet, conservation_law, ...
-schema/bower/v1/types/   — TBD (chat_thread, family_decision, ...)
-schema/twin/v1/types/    — TBD (handoff, persona_overlay, ...)
+schema/luce/v1/types/        — shot, sequence, task, doublet, conservation_law, ...
+schema/luce/v1/extensions/   — optional fields added to core types (e.g. conservation_class on decision)
+schema/bower/v1/types/       — TBD (chat_thread, family_decision, ...)
+schema/twin/v1/types/        — TBD (handoff, persona_overlay, ...)
 ```
 
-A type belongs in core when at least two consumers want it. See [../../CONTRIBUTING.md](../../CONTRIBUTING.md).
+A type or field belongs in core when at least two consumers want it. See [../../CONTRIBUTING.md](../../CONTRIBUTING.md).
 
 ## Frontmatter format
 

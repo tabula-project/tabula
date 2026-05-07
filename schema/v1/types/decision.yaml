@@ -104,13 +104,6 @@ allOf:
           type: string
           pattern: ^[a-z_]+:[a-z0-9-]+$
 
-      conservation_class:
-        type: string
-        description: |
-          Optional. Used by Luce's conservation-law machinery. Free-form;
-          common values: budget, schedule, creative-direction, reputation.
-        examples: [budget, schedule, creative-direction]
-
 examples:
   - id: 01HXAA9ABCDEF12345NOPQR
     type: decision
