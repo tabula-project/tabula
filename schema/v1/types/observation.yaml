@@ -61,7 +61,7 @@ allOf:
           Other observation record IDs that this one updates or refines.
           Convention: when a pattern is restated with new data, supersede
           the prior summary rather than append.
-        items: {type: string, pattern: ^[0-9A-HJKMNP-TV-Z]{26}$}
+        items: {type: string, pattern: "^[0-9A-HJKMNP-TV-Z]{26}$"}
 
 examples:
   - id: 01HXBB123456789ABCDEFG
