@@ -19,11 +19,11 @@ override.tf.json
 !example.tfvars
 !terraform.tfvars.example
 
-# CLI plan output
-*.tfplan
-*.tfplan.*
-
 # Local tfvars (real secrets / project IDs)
 terraform.tfvars
 *.auto.tfvars
 *.auto.tfvars.json
+
+# CLI plan output
+*.tfplan
+*.tfplan.*
