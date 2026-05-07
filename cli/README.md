@@ -1,13 +1,17 @@
 # tabula-cli
 
-User-facing CLI for the Tabula enclave lifecycle.
+User-facing CLI for Tabula: enclave lifecycle and the `tabula servers` pubkey
+pinning store.
 
 ## Status
 
 * `tabula enclave up <name>` — implemented (issue #26).
 * `tabula enclave down <name>` — implemented (issue #28). The state.json schema (`version: 1`) is shared; see [`_enclave_state.py`](src/tabula_cli/_enclave_state.py).
+* `tabula enclave ssh <name> {classifier|gpu|gitea}` — implemented (issue #33).
 * `tabula enclave status <name>` — pending (issue #30).
-* `tabula enclave ssh <name> {classifier|gpu|gitea}` — pending (issue #33).
+* `tabula servers add/list/remove` — implemented (issue #32). Manages
+  `~/.config/tabula/known_servers`. Persistence is delegated to
+  `tabula_wire.client.pinning`.
 
 ## `tabula enclave up`
 
@@ -132,3 +136,37 @@ Tests cover:
 * Terraform-failure path (state preserved, exit 2).
 * `--force` recovery path.
 * Schema version mismatch rejection.
+
+## `tabula servers` (pubkey pinning store)
+
+Manage the client-side server pubkey pinning store used by the chat dialer
+(issue #32). The store lives at `~/.config/tabula/known_servers` and is the
+single source of truth for "which static X25519 key do I trust for label
+`alpha`?"
+
+Tabula refuses to silently TOFU on first connect: pubkeys must be obtained
+out-of-band and pinned before `tabula chat connect <label>` will succeed.
+
+```text
+tabula servers add <label> <host>:<port> <hex-pubkey> [--force]
+tabula servers list
+tabula servers remove <label>
+```
+
+### Exit codes
+
+| Code | Meaning |
+|------|---------|
+| `0`  | Success. |
+| `1`  | Operational error (duplicate label without `--force`, unknown label on `remove`). |
+| `2`  | User input error (malformed `host:port`, malformed hex pubkey, port out of range). |
+
+### Notes
+
+* The pubkey argument is a 64-character lowercase hex string — exactly what
+  `tabula keygen` prints. Use the operator's published pubkey, not your own.
+* The store file is created with `0o600` permissions and the parent dir with
+  `0o700`. The loader rejects entries it cannot parse rather than silently
+  dropping them.
+* On-disk format and behavior are owned by `tabula_wire.client.pinning`; this
+  CLI is a thin Typer wrapper.
