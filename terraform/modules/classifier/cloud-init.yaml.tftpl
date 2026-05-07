@@ -1,0 +1,165 @@
+#cloud-config
+# Tabula classifier VM bootstrap.
+#
+# Templated by terraform/modules/classifier/main.tf. Renders one OS image into
+# a running Ollama node with a small classifier model pulled exactly once on
+# first boot.
+#
+# Idempotency contract: every step must be safe to re-run. Re-runs happen on
+# every boot via the systemd `tabula-bootstrap.service`. The model pull is
+# guarded with a sentinel file in /var/lib/tabula/.
+
+write_files:
+  # Sentinel directory — created here so subsequent steps can drop sentinels
+  # without an explicit `mkdir`.
+  - path: /var/lib/tabula/.keep
+    permissions: "0644"
+    content: |
+      # Tabula state directory. Sentinel files for first-boot idempotency live here.
+
+  # The Ollama systemd unit. The upstream installer drops its own unit, but
+  # we author one explicitly so the service shape is part of the audited
+  # surface — not a moving target maintained by ollama.com.
+  - path: /etc/systemd/system/ollama.service
+    permissions: "0644"
+    content: |
+      [Unit]
+      Description=Ollama LLM server (Tabula classifier)
+      After=network-online.target
+      Wants=network-online.target
+
+      [Service]
+      Type=simple
+      User=ollama
+      Group=ollama
+      ExecStart=/usr/local/bin/ollama serve
+      Environment=HOME=/usr/share/ollama
+      Environment=OLLAMA_HOST=127.0.0.1:11434
+      Environment=OLLAMA_MODELS=/usr/share/ollama/.ollama/models
+      Restart=on-failure
+      RestartSec=3
+      # Hardening — Ollama needs network + its model directory and nothing else.
+      NoNewPrivileges=true
+      ProtectSystem=strict
+      ProtectHome=true
+      ReadWritePaths=/usr/share/ollama /var/lib/tabula
+      PrivateTmp=true
+      ProtectKernelTunables=true
+      ProtectKernelModules=true
+      ProtectControlGroups=true
+
+      [Install]
+      WantedBy=multi-user.target
+
+  # First-boot bootstrap: install Ollama (idempotent), pull the configured
+  # model exactly once, then start + enable the service. The script is the
+  # single source of truth for what runs on first boot.
+  - path: /opt/tabula/bootstrap.sh
+    permissions: "0755"
+    content: |
+      #!/usr/bin/env bash
+      # Tabula classifier first-boot bootstrap. Idempotent.
+      set -euo pipefail
+
+      log() { logger -t tabula-bootstrap -- "$*"; echo "[tabula-bootstrap] $*"; }
+
+      MODEL_NAME="${model_name}"
+      SENTINEL_DIR="/var/lib/tabula"
+      INSTALL_SENTINEL="$${SENTINEL_DIR}/ollama-installed"
+      MODEL_SENTINEL="$${SENTINEL_DIR}/model-pulled.$${MODEL_NAME//[:\/]/_}"
+
+      mkdir -p "$${SENTINEL_DIR}"
+
+      # ----- Ollama install (idempotent; sentinel-guarded) ---------------------
+      # Residual trust on ollama.com: see module README. Future work moves the
+      # binary into a private GCS mirror to remove this trust.
+      if [[ ! -f "$${INSTALL_SENTINEL}" ]]; then
+        if ! command -v ollama >/dev/null 2>&1; then
+          log "Installing Ollama from ollama.com..."
+          curl -fsSL https://ollama.com/install.sh | sh
+        else
+          log "Ollama binary already present; skipping installer."
+        fi
+        # The upstream installer creates its own systemd unit — disable it so
+        # our hardened unit is the only one active.
+        systemctl disable --now ollama.service 2>/dev/null || true
+        touch "$${INSTALL_SENTINEL}"
+      else
+        log "Ollama install sentinel present; skipping installer."
+      fi
+
+      # ----- Activate our hardened systemd unit --------------------------------
+      systemctl daemon-reload
+      systemctl enable --now ollama.service
+      log "Ollama service enabled."
+
+      # ----- Wait for Ollama to be ready before pulling -----------------------
+      for i in $$(seq 1 30); do
+        if curl -fsS http://127.0.0.1:11434/api/tags >/dev/null 2>&1; then
+          log "Ollama API ready."
+          break
+        fi
+        sleep 2
+      done
+
+      # ----- Model pull (idempotent; sentinel-guarded) ------------------------
+      if [[ ! -f "$${MODEL_SENTINEL}" ]]; then
+        log "Pulling model $${MODEL_NAME}..."
+        if ollama pull "$${MODEL_NAME}"; then
+          touch "$${MODEL_SENTINEL}"
+          log "Model $${MODEL_NAME} pulled and pinned."
+        else
+          log "WARNING: model pull failed; will retry on next boot."
+          exit 1
+        fi
+      else
+        log "Model sentinel present; skipping pull of $${MODEL_NAME}."
+      fi
+
+      log "Bootstrap complete."
+
+  # Wake-GPU placeholder. Implemented for real in a separate issue. Exists
+  # here so the wake-signal contract (path + exit code) is stable.
+  - path: /opt/tabula/wake-gpu.sh
+    permissions: "0755"
+    content: |
+      #!/usr/bin/env bash
+      # Placeholder for the GPU wake-signal. Real implementation lands in a
+      # separate issue. Contract:
+      #   - exit 0 on success (wake initiated)
+      #   - exit non-zero on failure
+      # Today this is a no-op so dependent code can be wired up against the
+      # final path.
+      set -euo pipefail
+      GPU_INSTANCE_NAME="${gpu_instance_name}"
+      GPU_INSTANCE_ZONE="${gpu_instance_zone}"
+      logger -t tabula-wake-gpu -- "TODO: wake-signal not yet implemented; target=$${GPU_INSTANCE_NAME:-<unset>} zone=$${GPU_INSTANCE_ZONE:-<unset>}"
+      exit 0
+
+  - path: /etc/systemd/system/tabula-bootstrap.service
+    permissions: "0644"
+    content: |
+      [Unit]
+      Description=Tabula classifier first-boot bootstrap (Ollama + model pull)
+      After=network-online.target
+      Wants=network-online.target
+
+      [Service]
+      Type=oneshot
+      ExecStart=/opt/tabula/bootstrap.sh
+      RemainAfterExit=true
+      # Re-run on every boot — the script is sentinel-guarded so this is cheap
+      # after first boot.
+      StandardOutput=journal
+      StandardError=journal
+
+      [Install]
+      WantedBy=multi-user.target
+
+packages:
+  - curl
+  - ca-certificates
+
+runcmd:
+  - [ systemctl, daemon-reload ]
+  - [ systemctl, enable, --now, tabula-bootstrap.service ]
