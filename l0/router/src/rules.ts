@@ -38,7 +38,11 @@ export const MODELS = {
 	OLLAMA_QWEN_CODER: "ollama/qwen3-coder:30b",
 } as const;
 
-export const DEFAULT_MODEL = MODELS.KIMI_K2_6;
+// Default flipped 2026-05-07: Kimi K2.6 was unreliable (Fireworks 429 rate-limit
+// hits) and pi sessions were crashing. Switching default to Anthropic Opus 4.7.
+// OSS-first philosophy preserved via specific routing rules above; Opus is the
+// fallback when no specific rule fires.
+export const DEFAULT_MODEL = MODELS.OPUS_4_7;
 export const DEFAULT_LOCAL_MODEL = MODELS.MLX_QWEN_CODER;
 
 export const RULES: Rule[] = [
@@ -94,24 +98,10 @@ export const RULES: Rule[] = [
 		reason: "debug + large ctx → Kimi K2 Thinking",
 	},
 
-	// ---------------- FAST/FREE (Cerebras) ----------------
-	// Cerebras Free tier rate-limits aggressively. Only route here when the
-	// task is GENUINELY trivial — single-word lookups, yes/no questions, etc.
-	// Anything substantive should go through the OSS-frontier Kimi K2.6 default.
-	{
-		name: "trivial-lookup",
-		priority: 40,
-		when: (f) =>
-			f.promptTokensApprox < 50 &&
-			!f.hasCodeFences &&
-			f.touchedFiles === 0 &&
-			!f.mentionsDebug &&
-			!f.mentionsRefactor &&
-			!f.mentionsExplain &&
-			f.conversationTokensApprox < 500,
-		pick: MODELS.QWEN_3_235B,
-		reason: "trivial lookup (<50 tok, fresh ctx) → Cerebras free",
-	},
+	// NOTE: Cerebras Free tier removed from auto-routing 2026-05-07.
+	// Rate limits make it unsuitable as a default. Users can still manually
+	// pick it via Ctrl+P. To re-enable as a route target, add a rule here
+	// AFTER you upgrade to Cerebras Code Pro/Max with reliable quotas.
 
 	// ---------------- COST-OPTIMIZED OSS ----------------
 	{
@@ -135,7 +125,7 @@ export const RULES: Rule[] = [
 		priority: 1000,
 		when: () => true,
 		pick: DEFAULT_MODEL,
-		reason: "default → Kimi K2.6 (OSS-first)",
+		reason: "default → Claude Opus 4.7 (subscription-routed; reliable; was Kimi K2.6 but Fireworks rate-limited)",
 	},
 ];
 

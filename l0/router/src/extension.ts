@@ -23,9 +23,9 @@ import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import type { Model, Api } from "@mariozechner/pi-ai";
 import { randomUUID } from "node:crypto";
 import { buildFeatures, summarizeFeatures } from "./features.js";
-import { isOnline, isLocalProvider, maybeMarkOfflineFromError, offlineRemainingMs } from "./network.js";
+import { isOnline, isLocalProvider } from "./network.js";
 import { pickRule, parseCanonical, MODELS, DEFAULT_LOCAL_MODEL, RULES } from "./rules.js";
-import { isThrottled, markThrottled, detectThrottleFromError, throttleRemainingMs } from "./throttle.js";
+import { isThrottled, markThrottled, throttleRemainingMs } from "./throttle.js";
 import { recordDecision, applyFeedback, lastDecision, getDecision, statsSummary, dbPath } from "./store.js";
 import { loadConfig, saveConfig, configPath } from "./config-io.js";
 import type { RoutingDecision, VerbosityLevel } from "./types.js";
@@ -178,40 +178,44 @@ export default function piRouterExtension(pi: ExtensionAPI) {
 	});
 
 	// ----------------------------- after_provider_response ----------------------
-	// Listen for network errors → mark offline so future decisions route local.
+	// Detect rate-limit (429) and server-error (5xx) responses and throttle the
+	// chosen provider so the NEXT turn's rule selection skips it. Pi's
+	// AfterProviderResponseEvent exposes { status, headers } — NOT { error }.
+	// (The previous version read event.error, which never exists, so throttling
+	// silently never fired and pi sessions kept hammering rate-limited providers.)
 	pi.on("after_provider_response", (event, _ctx) => {
-		const err = (event as unknown as { error?: unknown }).error;
-		if (!err) return;
+		// Successful or redirect responses: nothing to do.
+		if (event.status >= 200 && event.status < 400) return;
+		if (!pendingDecision) return;
 
-		// Network error → offline mode
-		const wasNetwork = maybeMarkOfflineFromError(err);
-		if (wasNetwork && config.verbosity !== "silent") {
+		const provider = pendingDecision.chosenProvider;
+		let kind: "rate-limit" | "server-error" | null = null;
+		let durationMs: number | undefined;
+
+		if (event.status === 429) {
+			kind = "rate-limit";
+			// Honor Retry-After header when the provider sends one (seconds).
+			const retryAfter = event.headers?.["retry-after"];
+			if (retryAfter) {
+				const sec = parseInt(retryAfter, 10);
+				if (!isNaN(sec) && sec > 0) durationMs = Math.min(sec * 1000, 30 * 60_000);
+			}
+		} else if (event.status >= 500) {
+			kind = "server-error";
+		}
+
+		if (!kind) return;
+
+		markThrottled(provider, durationMs);
+		if (config.verbosity !== "silent") {
 			pi.sendMessage(
 				{
 					customType: "pi-router",
-					content: `⚠ pi-router: network error detected, entering OFFLINE mode for ${Math.round(offlineRemainingMs() / 1000)}s. Future routes will pick local models.`,
+					content: `⚠ pi-router: ${provider} ${kind} (HTTP ${event.status}) — throttled for ${Math.round(throttleRemainingMs(provider) / 60_000)}m. Next routes will skip this provider.`,
 					display: true,
 				},
 				{ deliverAs: "nextTurn" },
 			);
-			return;
-		}
-
-		// Rate limit / server error → throttle the provider
-		const throttleKind = detectThrottleFromError(err);
-		if (throttleKind && pendingDecision) {
-			const provider = pendingDecision.chosenProvider;
-			markThrottled(provider);
-			if (config.verbosity !== "silent") {
-				pi.sendMessage(
-					{
-						customType: "pi-router",
-						content: `⚠ pi-router: ${provider} ${throttleKind} — throttled for ${Math.round(throttleRemainingMs(provider) / 60_000)}m. Next routes will skip this provider.`,
-						display: true,
-					},
-					{ deliverAs: "nextTurn" },
-				);
-			}
 		}
 	});
 

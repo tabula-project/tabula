@@ -28,22 +28,25 @@ The router itself runs **entirely on your machine**. No cloud router. No API cal
 
 ## OSS-first defaults
 
-Default model: **Kimi K2.6** on Fireworks. Escalation rules:
+Default model: **Claude Opus 4.7** (subscription-routed; reliable). OSS-first philosophy preserved via specific routing rules — the Opus default is the fallback when no specific rule fires. Earlier versions defaulted to Kimi K2.6 on Fireworks but Fireworks rate-limit hits were crashing pi sessions; the default was flipped on 2026-05-07.
+
+Escalation rules:
 
 | Signal | Routes to |
 |---|---|
-| Concurrency / race-condition mentions | Claude Opus 4.7 (commercial escalation) |
+| Concurrency / race-condition mentions | Claude Opus 4.7 |
 | Context > 200K tokens | DeepSeek V4 Pro (1M ctx, OSS) |
 | Formal reasoning keywords (prove, theorem, big-O) | GLM 5.1 (reasoning OSS) |
 | Debug + large context | Kimi K2 Thinking (reasoning OSS) |
-| Quick standalone question | Cerebras Qwen 3 235B Instruct (free) |
-| Explain code | Kimi K2.5 (cheaper) |
+| Explain code | Kimi K2.5 (OSS, cheaper) |
 | Multi-file refactor | DeepSeek V4 Pro |
 | **Offline** + code task | MLX Qwen3-Coder 30B-A3B (local) |
 | **Offline** + general | MLX Llama 3.3 70B (local) |
-| Default | Kimi K2.6 |
+| Default | Claude Opus 4.7 |
 
-Edit `rules.ts` to tune.
+Note: Cerebras Free auto-routing was removed 2026-05-07 (rate limits unreliable). Users can still pick Cerebras manually via Ctrl+P.
+
+Edit `src/rules.ts` to tune.
 
 ## Install
 
