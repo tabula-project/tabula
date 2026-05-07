@@ -4,32 +4,28 @@
 
 > *Tabula: the durable surface beneath whatever you build.*
 
-Tabula is open-source infrastructure shared by a small set of independent applications — TWIN, Luce, Bower, and others — that each need the same primitives: sovereign-class compute, durable typed memory, and a knowledge graph derived from both. Rather than each project rebuilding its own, Tabula is the substrate they jointly depend on.
+Tabula is open-source infrastructure shared by a small set of independent applications — TWIN, Luce, Bower, and others — that each need the same primitives: sovereign-class compute, durable typed memory, and a knowledge graph derived from both.
 
-**Status:** Concept stage (May 2026). Spec ratification pending.
+## Status (2026-05-07)
 
-## Reading order
+MVP code complete end-to-end for a Bower-shaped chat enclave: wire protocol (Noise XX + protobuf), CLI (`tabula enclave {up,down,status,ssh}` + `chat` + `keygen`), GCP Terraform modules, audit + cost guardrails, GPU bootstrap. Tested locally; not yet deployed.
 
-- **[SPEC.md](SPEC.md)** — full architecture and design intent
-- **[CONTRIBUTING.md](CONTRIBUTING.md)** — how decisions are made; the steward + RFC model
-- **[docs/five-layer-architecture.md](docs/five-layer-architecture.md)** — the L0–L4 substrate model (shared vs per-app)
-- **[docs/deployment.md](docs/deployment.md)** — OSS-first reference stack; bootstrap timing
-- **[docs/deployments-pattern.md](docs/deployments-pattern.md)** — multi-archive deployment pattern
-- **[docs/patterns/](docs/patterns/)** — reusable cross-layer patterns (dual-tier memory, decision trace, lifecycle vocabulary)
-- **[l0/](l0/)** — sovereign compute: model registry, privacy-class routing, sleep API, router
-- **[l1/](l1/)** — substrate: frontmatter spec, identity model, encryption, replication, capture/recall
-- **[l3/](l3/)** — knowledge graph: Postgres + Apache AGE + pgvector + Graphiti
-- **[etl/](etl/)** — L2 → L1 distillation framework + Path C reference pattern
-- **[schema/](schema/)** — canonical content-type vocabulary (v1 in progress)
-- **[cli/](cli/)** — operator CLI: `tabula enclave {up,down}` and friends (issues #26, #28)
-- **[terraform/enclave/](terraform/enclave/)** — Terraform root module the CLI drives (composes sibling modules; uses stubs while #14, #15, #17, #19, #21, #23, #24 land)
+**Next**: stand up a real GCP enclave; decide [#90](https://github.com/tabula-project/tabula/issues/90) (finish vs remove `etl/` + `l3/` for chat-session memory).
 
-## Stewards (proposed)
+See [SPEC.md](SPEC.md) for full architecture and the [closed Epic #12](https://github.com/tabula-project/tabula/issues/12) / [Epic #13](https://github.com/tabula-project/tabula/issues/13) for the MVP shape.
 
-- @omniscia — TWIN-personal
-- Vivake / Good Studios — Luce
-- @rjwalters / 2AM Logic — Bower
+## Layout
 
-## License
+| Path | What |
+|---|---|
+| [`wire/`](wire/) | `tabula-wire` package — Noise XX, protobuf, server, client |
+| [`cli/`](cli/) | `tabula-cli` package — the `tabula` console script |
+| [`terraform/`](terraform/) | GCP modules + root enclave composition |
+| [`bootstrap/`](bootstrap/) | VM startup scripts (GPU, classifier wake) |
+| [`schema/`](schema/) | content-type vocabulary (v1 draft) |
+| [`l0/`](l0/), [`l1/`](l1/), [`l3/`](l3/), [`etl/`](etl/) | layer specs (prose); `l0/router/` is vendored code |
+| [`docs/`](docs/) | architecture, patterns, decisions |
 
-[Apache 2.0](LICENSE).
+## Governance
+
+Three-org steward model: @omniscia (TWIN), Vivake / Good Studios (Luce), @rjwalters / 2AM Logic (Bower). See [CONTRIBUTING.md](CONTRIBUTING.md). Apache 2.0.
