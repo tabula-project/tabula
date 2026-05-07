@@ -42,8 +42,14 @@ from tabula_wire.client import (
     ServerKeyMismatch,
     connect,
 )
-from tabula_wire.crypto.noise_xx import generate_keypair
-from tabula_wire.proto.v1 import ClientFrame, ServerFrame
+from tabula_wire.crypto import generate_keypair
+from tabula_wire.proto.v1 import (
+    AssistantToken,
+    AssistantTurnEnd,
+    ClientFrame,
+    ServerFrame,
+    UserMessage,
+)
 
 from ._test_server import FakeServer, echo_session, send_then_close
 
@@ -72,38 +78,51 @@ async def server(server_keypair):
         await s.stop()
 
 
+def _server_pubkey_bytes(secret) -> bytes:
+    return secret.public_key().raw
+
+
 async def test_loopback_handshake_and_round_trip(
     server, server_keypair, client_keypair
 ):
     """End-to-end: real Noise XX handshake on loopback, frames each way."""
     server.on_session = echo_session
 
+    server_pub = _server_pubkey_bytes(server_keypair)
+
     ch = await connect(
         host="127.0.0.1",
         port=server.port,
         local_static_key=client_keypair,
-        expected_remote_static_pubkey=server_keypair.public_bytes,
+        expected_remote_static_pubkey=server_pub,
     )
 
     try:
         assert isinstance(ch, ChatChannel)
-        assert ch.remote_static_pubkey == server_keypair.public_bytes
+        assert ch.remote_static_pubkey == server_pub
         assert not ch.closed
 
-        # Send three frames, expect three echoes.
+        # Send three frames, expect three echoes (text-in, text-out via
+        # AssistantToken).
         for i in range(3):
-            await ch.send(ClientFrame(kind="UserMessage", payload=f"hi-{i}".encode()))
+            await ch.send(
+                ClientFrame(
+                    user_message=UserMessage(text=f"hi-{i}", turn_id=f"t{i}")
+                )
+            )
             resp = await ch.recv()
             assert isinstance(resp, ServerFrame)
-            assert resp.kind == "echo"
-            assert resp.payload == f"hi-{i}".encode()
+            assert resp.WhichOneof("payload") == "token"
+            assert resp.token.text == f"hi-{i}"
+            assert resp.token.turn_id == f"t{i}"
 
-        # Reverse direction: server pushed echoes; we already round-tripped
-        # so this is implicitly covered. Add an explicit longer payload.
-        big = b"x" * 4096
-        await ch.send(ClientFrame(kind="UserMessage", payload=big))
+        # Larger payload to exercise framing on a non-trivial size.
+        big = "x" * 4096
+        await ch.send(
+            ClientFrame(user_message=UserMessage(text=big, turn_id="big"))
+        )
         resp = await ch.recv()
-        assert resp.payload == big
+        assert resp.token.text == big
     finally:
         await ch.close()
         assert ch.closed
@@ -119,8 +138,8 @@ async def test_wrong_pinned_key_raises_server_key_mismatch(
     """
     server.on_session = echo_session
 
-    bogus_pubkey = generate_keypair().public_bytes
-    assert bogus_pubkey != server_keypair.public_bytes
+    bogus_pubkey = _server_pubkey_bytes(generate_keypair())
+    assert bogus_pubkey != _server_pubkey_bytes(server_keypair)
 
     with pytest.raises(ServerKeyMismatch):
         await connect(
@@ -144,7 +163,7 @@ async def test_connection_refused(client_keypair, server_keypair):
             host="127.0.0.1",
             port=port,
             local_static_key=client_keypair,
-            expected_remote_static_pubkey=server_keypair.public_bytes,
+            expected_remote_static_pubkey=_server_pubkey_bytes(server_keypair),
             connect_timeout_s=2.0,
         )
 
@@ -163,7 +182,7 @@ async def test_connect_timeout_when_server_stalls_post_accept(
             host="127.0.0.1",
             port=server.port,
             local_static_key=client_keypair,
-            expected_remote_static_pubkey=server_keypair.public_bytes,
+            expected_remote_static_pubkey=_server_pubkey_bytes(server_keypair),
             connect_timeout_s=0.3,
         )
 
@@ -186,7 +205,7 @@ async def test_connect_timeout_when_server_drops_after_msg1(
             host="127.0.0.1",
             port=server.port,
             local_static_key=client_keypair,
-            expected_remote_static_pubkey=server_keypair.public_bytes,
+            expected_remote_static_pubkey=_server_pubkey_bytes(server_keypair),
             connect_timeout_s=0.3,
         )
 
@@ -204,7 +223,7 @@ async def test_garbage_after_handshake_raises_protocol_error(
         host="127.0.0.1",
         port=server.port,
         local_static_key=client_keypair,
-        expected_remote_static_pubkey=server_keypair.public_bytes,
+        expected_remote_static_pubkey=_server_pubkey_bytes(server_keypair),
     )
 
     with pytest.raises(ProtocolError):
@@ -230,7 +249,7 @@ async def test_close_during_pending_recv(
         host="127.0.0.1",
         port=server.port,
         local_static_key=client_keypair,
-        expected_remote_static_pubkey=server_keypair.public_bytes,
+        expected_remote_static_pubkey=_server_pubkey_bytes(server_keypair),
     )
 
     recv_task = asyncio.create_task(ch.recv())
@@ -256,7 +275,7 @@ async def test_close_is_idempotent(server, server_keypair, client_keypair):
         host="127.0.0.1",
         port=server.port,
         local_static_key=client_keypair,
-        expected_remote_static_pubkey=server_keypair.public_bytes,
+        expected_remote_static_pubkey=_server_pubkey_bytes(server_keypair),
     )
 
     await ch.close()
@@ -273,7 +292,7 @@ async def test_dns_error(client_keypair, server_keypair):
             host="this-host-must-not-exist.invalid",
             port=1,
             local_static_key=client_keypair,
-            expected_remote_static_pubkey=server_keypair.public_bytes,
+            expected_remote_static_pubkey=_server_pubkey_bytes(server_keypair),
             connect_timeout_s=2.0,
         )
 
@@ -281,17 +300,17 @@ async def test_dns_error(client_keypair, server_keypair):
 async def test_async_iterator(server, server_keypair, client_keypair):
     """``async for frame in channel`` yields decrypted ServerFrames."""
     frames = [
-        ServerFrame(kind="AssistantToken", payload=b"alpha"),
-        ServerFrame(kind="AssistantToken", payload=b"beta"),
-        ServerFrame(kind="AssistantTurnEnd", payload=b""),
+        ServerFrame(token=AssistantToken(text="alpha", sequence=0, turn_id="t1")),
+        ServerFrame(token=AssistantToken(text="beta", sequence=1, turn_id="t1")),
+        ServerFrame(turn_end=AssistantTurnEnd(turn_id="t1")),
     ]
-    server.on_session = await send_then_close(frames)
+    server.on_session = send_then_close(frames)
 
     ch = await connect(
         host="127.0.0.1",
         port=server.port,
         local_static_key=client_keypair,
-        expected_remote_static_pubkey=server_keypair.public_bytes,
+        expected_remote_static_pubkey=_server_pubkey_bytes(server_keypair),
     )
 
     received: list[ServerFrame] = []
@@ -303,6 +322,7 @@ async def test_async_iterator(server, server_keypair, client_keypair):
     finally:
         await ch.close()
 
-    assert [(f.kind, f.payload) for f in received] == [
-        (f.kind, f.payload) for f in frames
-    ]
+    assert len(received) == len(frames)
+    assert received[0].token.text == "alpha"
+    assert received[1].token.text == "beta"
+    assert received[2].WhichOneof("payload") == "turn_end"

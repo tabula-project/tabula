@@ -32,14 +32,15 @@ import asyncio
 import socket
 from typing import AsyncIterator
 
-from tabula_wire.crypto.noise_xx import (
-    KeyMismatchError,
-    KeyPair,
-    NoiseError,
-    XXInitiator,
+from tabula_wire.crypto import SecretKey
+from tabula_wire.crypto.noise_xx import HandshakeError, XXInitiator
+from tabula_wire.framing import (
+    FrameTooLargeError,
+    FramingError,
+    read_frame,
+    write_frame,
 )
-from tabula_wire.framing import FrameError, FrameTooLarge, encode_frame, read_frame
-from tabula_wire.proto.v1 import ClientFrame, ProtoError, ServerFrame
+from tabula_wire.proto.v1 import ClientFrame, ServerFrame
 
 from .exceptions import (
     ConnectRefused,
@@ -97,15 +98,16 @@ class ChatChannel:
             raise ProtocolError(f"failed to serialize ClientFrame: {exc}") from exc
         try:
             ciphertext = self._noise.encrypt(plaintext)
-        except NoiseError as exc:
+        except HandshakeError as exc:
             raise ProtocolError(f"noise encrypt failed: {exc}") from exc
-        framed = encode_frame(ciphertext)
         async with self._send_lock:
             if self._closed:
                 raise ProtocolError("send on closed ChatChannel")
             try:
-                self._writer.write(framed)
-                await self._writer.drain()
+                await write_frame(self._writer, ciphertext)
+            except FrameTooLargeError as exc:
+                await self._close_internal()
+                raise ProtocolError(str(exc)) from exc
             except (ConnectionError, OSError) as exc:
                 await self._close_internal()
                 raise ProtocolError(f"send failed: {exc}") from exc
@@ -130,10 +132,10 @@ class ChatChannel:
                     f"unexpected EOF reading frame header (got "
                     f"{len(exc.partial)}/{exc.expected} bytes)"
                 ) from exc
-            except FrameTooLarge as exc:
+            except FrameTooLargeError as exc:
                 await self._close_internal()
                 raise ProtocolError(str(exc)) from exc
-            except FrameError as exc:
+            except FramingError as exc:
                 await self._close_internal()
                 raise ProtocolError(str(exc)) from exc
             except (ConnectionError, OSError) as exc:
@@ -142,15 +144,12 @@ class ChatChannel:
 
             try:
                 plaintext = self._noise.decrypt(ciphertext)
-            except NoiseError as exc:
+            except HandshakeError as exc:
                 await self._close_internal()
                 raise ProtocolError(f"noise decrypt failed: {exc}") from exc
 
             try:
                 return ServerFrame.FromString(plaintext)
-            except ProtoError as exc:
-                await self._close_internal()
-                raise ProtocolError(f"malformed ServerFrame: {exc}") from exc
             except Exception as exc:  # protobuf parse errors etc.
                 await self._close_internal()
                 raise ProtocolError(f"malformed ServerFrame: {exc}") from exc
@@ -193,7 +192,7 @@ class ChatChannel:
 async def connect(
     host: str,
     port: int,
-    local_static_key: KeyPair,
+    local_static_key: SecretKey,
     expected_remote_static_pubkey: bytes,
     *,
     connect_timeout_s: float = DEFAULT_CONNECT_TIMEOUT_S,
@@ -235,7 +234,7 @@ async def connect(
 async def _dial_and_handshake(
     host: str,
     port: int,
-    local_static_key: KeyPair,
+    local_static_key: SecretKey,
     expected_remote_static_pubkey: bytes,
 ) -> ChatChannel:
     # Step 1: TCP dial. Map low-level OSError into typed exceptions.
@@ -282,7 +281,7 @@ async def _dial_and_handshake(
 async def _run_handshake(
     reader: asyncio.StreamReader,
     writer: asyncio.StreamWriter,
-    local_static_key: KeyPair,
+    local_static_key: SecretKey,
     expected_remote_static_pubkey: bytes,
 ) -> ChatChannel:
     noise = XXInitiator(
@@ -292,11 +291,13 @@ async def _run_handshake(
 
     # Msg 1 (-> e): write
     try:
-        msg1 = noise.write_message(b"")
-        writer.write(encode_frame(msg1))
-        await writer.drain()
-    except NoiseError as exc:
+        msg1 = noise.write_handshake_message(b"")
+    except HandshakeError as exc:
         raise ProtocolError(f"handshake msg1 build failed: {exc}") from exc
+    try:
+        await write_frame(writer, msg1)
+    except FrameTooLargeError as exc:
+        raise ProtocolError(f"handshake msg1 too large: {exc}") from exc
     except (ConnectionError, OSError) as exc:
         raise ProtocolError(f"handshake msg1 send failed: {exc}") from exc
 
@@ -307,25 +308,33 @@ async def _run_handshake(
         raise ProtocolError(
             f"handshake msg2: EOF after {len(exc.partial)}/{exc.expected} bytes"
         ) from exc
-    except FrameTooLarge as exc:
+    except FrameTooLargeError as exc:
         raise ProtocolError(f"handshake msg2 too large: {exc}") from exc
-    except FrameError as exc:
+    except FramingError as exc:
         raise ProtocolError(f"handshake msg2 framing error: {exc}") from exc
     except (ConnectionError, OSError) as exc:
         raise ProtocolError(f"handshake msg2 recv failed: {exc}") from exc
 
     try:
-        noise.read_message(msg2)
-    except NoiseError as exc:
+        noise.read_handshake_message(msg2)
+    except HandshakeError as exc:
+        # XXInitiator.read_handshake_message raises HandshakeError on a pin
+        # mismatch (it knows the pinned pubkey). Surface that as
+        # ServerKeyMismatch so callers can disambiguate.
+        msg = str(exc)
+        if "pinning failure" in msg or "remote static pubkey mismatch" in msg:
+            raise ServerKeyMismatch(msg) from exc
         raise ProtocolError(f"handshake msg2 decode failed: {exc}") from exc
 
     # Msg 3 (-> s, se): write. This completes the handshake.
     try:
-        msg3 = noise.write_message(b"")
-        writer.write(encode_frame(msg3))
-        await writer.drain()
-    except NoiseError as exc:
+        msg3 = noise.write_handshake_message(b"")
+    except HandshakeError as exc:
         raise ProtocolError(f"handshake msg3 build failed: {exc}") from exc
+    try:
+        await write_frame(writer, msg3)
+    except FrameTooLargeError as exc:
+        raise ProtocolError(f"handshake msg3 too large: {exc}") from exc
     except (ConnectionError, OSError) as exc:
         raise ProtocolError(f"handshake msg3 send failed: {exc}") from exc
 
@@ -334,9 +343,10 @@ async def _run_handshake(
         # initiator side. Defensive check anyway.
         raise ProtocolError("Noise XX handshake did not complete after msg3")
 
-    # Pinning check: verify *immediately* and *before* yielding ChatChannel
-    # so no application frames are ever read or written under an unverified
-    # peer identity.
+    # Pinning check: defense-in-depth. XXInitiator.read_handshake_message
+    # already raised HandshakeError if the remote static did not match the
+    # pinned pubkey. We re-verify here so no application frames are ever
+    # read or written under an unverified peer identity.
     actual_pubkey = noise.remote_static_pubkey
     if actual_pubkey is None:
         raise ProtocolError("Noise handshake completed but no remote static key")

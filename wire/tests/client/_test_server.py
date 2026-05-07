@@ -1,38 +1,50 @@
 """Minimal Noise XX responder used as a test fixture for the client dialer.
 
-This is a stand-in for the real server listener that lands in #20. The
-client dialer test (#27) calls for a loopback test against a real listener;
-since #20 has not landed yet, this fixture provides exactly enough server
-behaviour to exercise the client end-to-end:
+A small, self-contained server that exercises the client end-to-end:
 
 - accept a TCP connection
-- run the Noise XX responder handshake
+- run the Noise XX responder handshake using ``tabula_wire.crypto.XXResponder``
 - send the configured ``ServerFrame`` payloads
-- echo any received ``ClientFrame`` back as ``ServerFrame`` (kind ``echo``)
+- echo any received ``ClientFrame.user_message`` back as
+  ``ServerFrame.token`` (an ``AssistantToken`` echoing the text)
 
-When #20 merges, tests in this file should be migrated to the real
-``tabula_wire.server.listener.serve`` and this fixture deleted.
+This keeps the dialer tests independent of the higher-level session loop in
+:mod:`tabula_wire.server`.
 """
 
 from __future__ import annotations
 
 import asyncio
 from dataclasses import dataclass, field
-from typing import Awaitable, Callable
+from typing import Awaitable, Callable, Optional
 
-from tabula_wire.crypto.noise_xx import KeyPair, NoiseError, XXResponder
-from tabula_wire.framing import FrameError, FrameTooLarge, encode_frame, read_frame
-from tabula_wire.proto.v1 import ClientFrame, ServerFrame
+from tabula_wire.crypto import SecretKey, XXResponder
+from tabula_wire.crypto.noise_xx import HandshakeError
+from tabula_wire.framing import (
+    FrameTooLargeError,
+    FramingError,
+    read_frame,
+    write_frame,
+)
+from tabula_wire.proto.v1 import AssistantToken, ClientFrame, ServerFrame
 
 
 @dataclass
 class FakeServer:
-    """Test fixture server. Renamed from ``TestServer`` because pytest
-    auto-collects classes whose names start with ``Test`` and complains."""
+    """Test fixture server.
 
-    static_key: KeyPair
-    server: asyncio.base_events.Server | None = None
-    on_session: Callable[[XXResponder, asyncio.StreamReader, asyncio.StreamWriter], Awaitable[None]] | None = None
+    Pytest auto-collects classes whose names start with ``Test`` so we use
+    ``FakeServer`` to keep the collector quiet.
+    """
+
+    static_key: SecretKey
+    server: Optional[asyncio.base_events.Server] = None
+    on_session: Optional[
+        Callable[
+            [XXResponder, asyncio.StreamReader, asyncio.StreamWriter],
+            Awaitable[None],
+        ]
+    ] = None
     # Behaviour switches used by individual tests:
     refuse_after_accept: bool = False
     skip_handshake_msg2: bool = False
@@ -93,11 +105,11 @@ class FakeServer:
             # Msg 1
             try:
                 m1 = await read_frame(reader)
-            except (FrameError, FrameTooLarge, asyncio.IncompleteReadError):
+            except (FramingError, FrameTooLargeError, asyncio.IncompleteReadError):
                 return
             try:
-                noise.read_message(m1)
-            except NoiseError:
+                noise.read_handshake_message(m1)
+            except HandshakeError:
                 return
 
             if self.skip_handshake_msg2:
@@ -105,18 +117,17 @@ class FakeServer:
                 return
 
             # Msg 2
-            m2 = noise.write_message(b"")
-            writer.write(encode_frame(m2))
-            await writer.drain()
+            m2 = noise.write_handshake_message(b"")
+            await write_frame(writer, m2)
 
             # Msg 3
             try:
                 m3 = await read_frame(reader)
-            except (FrameError, FrameTooLarge, asyncio.IncompleteReadError):
+            except (FramingError, FrameTooLargeError, asyncio.IncompleteReadError):
                 return
             try:
-                noise.read_message(m3)
-            except NoiseError:
+                noise.read_handshake_message(m3)
+            except HandshakeError:
                 return
 
             assert noise.handshake_finished
@@ -126,17 +137,14 @@ class FakeServer:
                 # and reject as ProtocolError. We frame it correctly so the
                 # framing layer accepts the bytes; the noise decrypt is what
                 # should fail.
-                writer.write(encode_frame(b"\x00" * 32))
-                await writer.drain()
+                await write_frame(writer, b"\x00" * 32)
                 return
 
             if self.on_session is not None:
                 await self.on_session(noise, reader, writer)
         except Exception:
             # Test fixture: swallow all exceptions on the server side so the
-            # listener does not crash the event loop. Real #20 server has
-            # the same swallowing requirement; failures should just close
-            # the per-connection state.
+            # listener does not crash the event loop.
             pass
         finally:
             try:
@@ -151,38 +159,48 @@ async def echo_session(
     reader: asyncio.StreamReader,
     writer: asyncio.StreamWriter,
 ) -> None:
-    """Read ClientFrames, echo them back as ServerFrames (kind='echo')."""
+    """Read ClientFrames; for each ``user_message`` echo the text as an
+    ``AssistantToken`` inside a ``ServerFrame``.
+    """
     while True:
         try:
             ct = await read_frame(reader)
-        except (FrameError, FrameTooLarge, asyncio.IncompleteReadError):
+        except (FramingError, FrameTooLargeError, asyncio.IncompleteReadError):
             return
         try:
             pt = noise.decrypt(ct)
-        except NoiseError:
+        except HandshakeError:
             return
         try:
             req = ClientFrame.FromString(pt)
         except Exception:
             return
-        resp = ServerFrame(kind="echo", payload=req.payload)
+        if req.WhichOneof("payload") != "user_message":
+            # Only echo user_message frames; ignore Hello/end for this fixture.
+            continue
+        text = req.user_message.text
+        turn_id = req.user_message.turn_id
+        resp = ServerFrame(
+            token=AssistantToken(text=text, sequence=0, turn_id=turn_id)
+        )
         try:
             out = noise.encrypt(resp.SerializeToString())
-            writer.write(encode_frame(out))
-            await writer.drain()
-        except (NoiseError, ConnectionError, OSError):
+            await write_frame(writer, out)
+        except (HandshakeError, ConnectionError, OSError):
             return
 
 
-async def send_then_close(
+def send_then_close(
     frames: list[ServerFrame],
-) -> Callable[[XXResponder, asyncio.StreamReader, asyncio.StreamWriter], Awaitable[None]]:
+) -> Callable[
+    [XXResponder, asyncio.StreamReader, asyncio.StreamWriter],
+    Awaitable[None],
+]:
     """Build an ``on_session`` that sends each frame in order, then closes."""
 
     async def _h(noise, reader, writer):
         for f in frames:
             ct = noise.encrypt(f.SerializeToString())
-            writer.write(encode_frame(ct))
-            await writer.drain()
+            await write_frame(writer, ct)
 
     return _h
