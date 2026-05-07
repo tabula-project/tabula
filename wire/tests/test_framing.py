@@ -11,7 +11,7 @@ import struct
 
 import pytest
 
-from wire.framing import (
+from tabula_wire.framing import (
     FrameTooLargeError,
     LENGTH_PREFIX_BYTES,
     MAX_FRAME_SIZE,

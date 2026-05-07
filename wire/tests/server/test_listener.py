@@ -1,4 +1,4 @@
-"""Tests for ``wire.server.listener`` over real loopback sockets.
+"""Tests for ``tabula_wire.server.listener`` over real loopback sockets.
 
 Covers the four scenarios required by issue #20's acceptance criteria:
 
@@ -7,11 +7,8 @@ Covers the four scenarios required by issue #20's acceptance criteria:
 3. Handshake failure (wrong client key shape).
 4. Malformed proto after decrypt.
 
-Tests use the stub Noise responder and stub proto codec so they do not
-depend on #16 (proto schema) or #18 (real Noise XX wrapper). When
-those land, the same tests can be re-run against the real
-implementations by changing only the responder factory and codec
-fixture.
+Uses the real ``tabula_wire.crypto`` (Noise XX) from #50 and the real
+``tabula_wire.proto.v1`` bindings from #45 — no stubs.
 """
 
 from __future__ import annotations
@@ -21,13 +18,13 @@ import struct
 
 import pytest
 
-from wire.crypto.protocol import HandshakeError, NoiseResponderProtocol
-from wire.crypto.stub import (
-    XXInitiatorStub,
-    XXResponderStub,
-    _AUTH_TRAILER,
+from tabula_wire.crypto import (
+    HandshakeError,
+    SecretKey,
+    XXInitiator,
+    XXResponder,
 )
-from wire.framing import (
+from tabula_wire.framing import (
     LENGTH_PREFIX_BYTES,
     MAX_FRAME_SIZE,
     encode_length_prefix,
@@ -35,28 +32,38 @@ from wire.framing import (
     write_frame,
     FrameTooLargeError,
 )
-from wire.proto import ClientFrame, ServerFrame, StubProtoCodec
-from wire.server import HandshakeInfo, Session, serve
+from tabula_wire.proto.v1 import ClientFrame, ServerFrame, UserMessage, Welcome
+from tabula_wire.server import HandshakeInfo, Session, serve
+from tabula_wire.server.listener import (
+    FrameCodec,
+    NoiseResponderProtocol,
+    _RealProtoCodec,
+)
 
 
-# 32-byte stand-ins for X25519 static keys.
-SERVER_KEY = b"S" * 32
-CLIENT_KEY = b"C" * 32
+# 32-byte stand-ins for X25519 static keys. X25519 clamps internally,
+# so any 32 bytes form a valid scalar.
+SERVER_SECRET = SecretKey(raw=b"S" * 32)
+CLIENT_SECRET = SecretKey(raw=b"C" * 32)
+# The listener API takes raw bytes for the server static key.
+SERVER_KEY = SERVER_SECRET.raw
+SERVER_PUB = SERVER_SECRET.public_key().raw
+CLIENT_PUB = CLIENT_SECRET.public_key().raw
 
 
 def _responder_factory(static_key: bytes) -> NoiseResponderProtocol:
-    return XXResponderStub(static_key)
+    return XXResponder(SecretKey(raw=bytes(static_key)))
 
 
 @pytest.fixture
-def codec() -> StubProtoCodec:
-    return StubProtoCodec()
+def codec() -> FrameCodec:
+    return _RealProtoCodec()
 
 
 async def _start_server(
     on_session,
     *,
-    codec: StubProtoCodec,
+    codec: FrameCodec,
     max_frame_size: int = MAX_FRAME_SIZE,
 ):
     server = await serve(
@@ -80,11 +87,17 @@ async def _open_client(host: str, port: int):
 async def _drive_client_handshake(
     reader: asyncio.StreamReader,
     writer: asyncio.StreamWriter,
-    expected_server_key: bytes | None = SERVER_KEY,
+    expected_server_pub: bytes | None = None,
     *,
-    client_key: bytes = CLIENT_KEY,
+    client_secret: SecretKey | None = None,
 ):
-    initiator = XXInitiatorStub(client_key, expected_remote_pubkey=expected_server_key)
+    if expected_server_pub is None:
+        expected_server_pub = SERVER_PUB
+    if client_secret is None:
+        client_secret = CLIENT_SECRET
+    initiator = XXInitiator(
+        client_secret, remote_static_pubkey=expected_server_pub
+    )
     # msg1: -> e
     msg1 = initiator.write_handshake_message(b"")
     await write_frame(writer, msg1)
@@ -94,7 +107,8 @@ async def _drive_client_handshake(
     # msg3: -> s, se
     msg3 = initiator.write_handshake_message(b"")
     await write_frame(writer, msg3)
-    return initiator.into_transport()
+    # Same object handles transport-phase encrypt/decrypt.
+    return initiator
 
 
 # ---------------------------------------------------------------------------
@@ -103,18 +117,19 @@ async def _drive_client_handshake(
 
 
 @pytest.mark.asyncio
-async def test_handshake_and_roundtrip_frames(codec: StubProtoCodec):
+async def test_handshake_and_roundtrip_frames(codec: FrameCodec):
     received_on_server: list[ClientFrame] = []
     handshake_seen: list[HandshakeInfo] = []
 
     async def on_session(info: HandshakeInfo, session: Session):
         handshake_seen.append(info)
-        # Echo each ClientFrame back as a ServerFrame.
+        # Echo each ClientFrame back as a ServerFrame.Welcome with
+        # session_id derived from the user_message text (so the
+        # roundtrip carries observable content).
         async for frame in session.recv_frames:
             received_on_server.append(frame)
-            await session.send_frame(
-                ServerFrame(kind="echo", text=frame.text)
-            )
+            sf = ServerFrame(welcome=Welcome(session_id=frame.user_message.text))
+            await session.send_frame(sf)
 
     server, host, port = await _start_server(on_session, codec=codec)
     try:
@@ -123,14 +138,16 @@ async def test_handshake_and_roundtrip_frames(codec: StubProtoCodec):
 
         # Send 5 frames, expect 5 echoes.
         for i in range(5):
-            cf = ClientFrame(kind="user", text=f"hello-{i}")
+            cf = ClientFrame(user_message=UserMessage(text=f"hello-{i}"))
             await write_frame(writer, transport.encrypt(cf.SerializeToString()))
 
         echoes: list[ServerFrame] = []
         for _ in range(5):
             ct = await read_frame(reader)
             pt = transport.decrypt(ct)
-            echoes.append(ServerFrame.ParseFromString(pt))
+            sf = ServerFrame()
+            sf.ParseFromString(pt)
+            echoes.append(sf)
 
         # Close client; server should drain and exit.
         writer.close()
@@ -143,12 +160,16 @@ async def test_handshake_and_roundtrip_frames(codec: StubProtoCodec):
         await server.wait_closed()
 
     # Server saw the same five frames.
-    assert [f.text for f in received_on_server] == [f"hello-{i}" for i in range(5)]
+    assert [f.user_message.text for f in received_on_server] == [
+        f"hello-{i}" for i in range(5)
+    ]
     # Client saw five matching echoes.
-    assert [f.text for f in echoes] == [f"hello-{i}" for i in range(5)]
-    # Handshake info captured the client static key.
+    assert [f.welcome.session_id for f in echoes] == [
+        f"hello-{i}" for i in range(5)
+    ]
+    # Handshake info captured the client static pubkey.
     assert len(handshake_seen) == 1
-    assert handshake_seen[0].remote_static_pubkey == CLIENT_KEY
+    assert handshake_seen[0].remote_static_pubkey == CLIENT_PUB
     assert handshake_seen[0].peer_addr is not None
     assert handshake_seen[0].peer_addr[0] in {"127.0.0.1", "::1"}
 
@@ -159,7 +180,7 @@ async def test_handshake_and_roundtrip_frames(codec: StubProtoCodec):
 
 
 @pytest.mark.asyncio
-async def test_oversize_frame_rejected(codec: StubProtoCodec):
+async def test_oversize_frame_rejected(codec: FrameCodec):
     # Use a small max so we can send an "oversize" frame quickly.
     small_max = 1024
     on_session_called = asyncio.Event()
@@ -215,7 +236,7 @@ async def test_oversize_frame_rejected(codec: StubProtoCodec):
 
 
 @pytest.mark.asyncio
-async def test_truncated_handshake_does_not_crash_listener(codec: StubProtoCodec):
+async def test_truncated_handshake_does_not_crash_listener(codec: FrameCodec):
     sessions_started = 0
 
     async def on_session(info: HandshakeInfo, session: Session):
@@ -270,7 +291,7 @@ async def test_truncated_handshake_does_not_crash_listener(codec: StubProtoCodec
 
 
 @pytest.mark.asyncio
-async def test_handshake_failure_closes_cleanly(codec: StubProtoCodec):
+async def test_handshake_failure_closes_cleanly(codec: FrameCodec):
     sessions_started = 0
 
     async def on_session(info: HandshakeInfo, session: Session):
@@ -315,7 +336,7 @@ async def test_handshake_failure_closes_cleanly(codec: StubProtoCodec):
 
 
 @pytest.mark.asyncio
-async def test_initiator_pin_mismatch_does_not_crash_listener(codec: StubProtoCodec):
+async def test_initiator_pin_mismatch_does_not_crash_listener(codec: FrameCodec):
     sessions_started = 0
 
     async def on_session(info: HandshakeInfo, session: Session):
@@ -327,11 +348,11 @@ async def test_initiator_pin_mismatch_does_not_crash_listener(codec: StubProtoCo
     server, host, port = await _start_server(on_session, codec=codec)
     try:
         reader, writer = await _open_client(host, port)
-        # Tell the initiator to expect a different server key — it
+        # Tell the initiator to expect a different server pubkey — it
         # raises HandshakeError on msg2.
         with pytest.raises(HandshakeError):
             await _drive_client_handshake(
-                reader, writer, expected_server_key=b"X" * 32
+                reader, writer, expected_server_pub=b"X" * 32
             )
         writer.close()
         try:
@@ -361,7 +382,7 @@ async def test_initiator_pin_mismatch_does_not_crash_listener(codec: StubProtoCo
 
 
 @pytest.mark.asyncio
-async def test_malformed_proto_closes_connection(codec: StubProtoCodec):
+async def test_malformed_proto_closes_connection(codec: FrameCodec):
     closed_cleanly = asyncio.Event()
 
     async def on_session(info: HandshakeInfo, session: Session):
@@ -395,7 +416,7 @@ async def test_malformed_proto_closes_connection(codec: StubProtoCodec):
 
 
 @pytest.mark.asyncio
-async def test_aead_failure_closes_connection(codec: StubProtoCodec):
+async def test_aead_failure_closes_connection(codec: FrameCodec):
     closed_cleanly = asyncio.Event()
 
     async def on_session(info: HandshakeInfo, session: Session):
@@ -407,11 +428,11 @@ async def test_aead_failure_closes_connection(codec: StubProtoCodec):
     try:
         reader, writer = await _open_client(host, port)
         transport = await _drive_client_handshake(reader, writer)
-        # Build a valid ciphertext, then strip the auth trailer to
-        # trigger the stub's "AEAD" failure.
-        cf = ClientFrame(kind="user", text="x")
+        # Build a valid ciphertext, then flip bits in the AEAD tag
+        # (last 16 bytes) to trigger an authentication failure.
+        cf = ClientFrame(user_message=UserMessage(text="x"))
         good = transport.encrypt(cf.SerializeToString())
-        tampered = good[:-len(_AUTH_TRAILER)] + b"X" * len(_AUTH_TRAILER)
+        tampered = good[:-16] + bytes(b ^ 0xFF for b in good[-16:])
         await write_frame(writer, tampered)
         await asyncio.wait_for(closed_cleanly.wait(), timeout=2.0)
         writer.close()

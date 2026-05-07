@@ -42,14 +42,10 @@ import asyncio
 import logging
 from collections.abc import AsyncIterator, Awaitable, Callable
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Protocol, runtime_checkable
 
-from wire.crypto.protocol import (
-    HandshakeError,
-    NoiseResponderProtocol,
-    NoiseTransportProtocol,
-)
-from wire.framing import (
+from tabula_wire.crypto import HandshakeError
+from tabula_wire.framing import (
     FrameTooLargeError,
     MAX_FRAME_SIZE,
     encode_length_prefix,
@@ -57,7 +53,48 @@ from wire.framing import (
     read_frame,
     write_frame,
 )
-from wire.proto import FrameCodec
+
+
+@runtime_checkable
+class NoiseResponderProtocol(Protocol):
+    """XX responder + post-handshake transport (structural).
+
+    Matches the surface of ``tabula_wire.crypto.XXResponder``: the
+    same object drives the 3-message XX handshake and then encrypts /
+    decrypts transport frames. Test fakes may also satisfy this.
+    """
+
+    @property
+    def handshake_finished(self) -> bool: ...
+    @property
+    def remote_static_pubkey(self) -> bytes | None: ...
+    def read_handshake_message(self, ciphertext: bytes) -> bytes: ...
+    def write_handshake_message(self, payload: bytes) -> bytes: ...
+    def encrypt(self, plaintext: bytes) -> bytes: ...
+    def decrypt(self, ciphertext: bytes) -> bytes: ...
+
+
+# Backwards-compat alias for code/tests that referred to the
+# transport-phase as a separate type.
+NoiseTransportProtocol = NoiseResponderProtocol
+
+
+@runtime_checkable
+class FrameCodec(Protocol):
+    """Codec the listener uses to (de)serialize plaintext frames.
+
+    Decouples the listener from concrete protobuf classes. The default
+    implementation (``_default_codec``) wraps the generated bindings
+    from ``tabula_wire.proto.v1``; tests may inject alternates.
+    """
+
+    def encode_server_frame(self, frame: object) -> bytes:
+        """Serialize a ServerFrame to bytes for encryption."""
+        ...
+
+    def decode_client_frame(self, data: bytes) -> object:
+        """Parse bytes (decrypted plaintext) into a ClientFrame."""
+        ...
 
 log = logging.getLogger(__name__)
 
@@ -108,8 +145,8 @@ class Session:
 SessionCallback = Callable[[HandshakeInfo, Session], Awaitable[None]]
 
 # Factory that produces a fresh NoiseResponder for each accepted
-# connection. Injected so #18's real implementation and #20's stub are
-# both usable without changing the listener.
+# connection. Injected so callers can substitute alternate
+# implementations (e.g. test fakes) without changing the listener.
 ResponderFactory = Callable[[bytes], NoiseResponderProtocol]
 
 
@@ -156,7 +193,8 @@ async def _run_responder_handshake(
 
     if not responder.handshake_finished:
         raise HandshakeError("responder did not finalize after msg3")
-    return responder.into_transport()
+    # The same object is used for transport-phase encrypt/decrypt.
+    return responder
 
 
 # Module-level sentinel pushed onto the recv queue by the reader pump
@@ -299,9 +337,17 @@ async def _handle_connection(
                 log.warning("unexpected handshake error from %s: %s", peer, exc)
             return
 
+        remote_pub = transport.remote_static_pubkey
+        if remote_pub is None:
+            # ``handshake_finished`` is True, so the real responder
+            # guarantees this is non-None. Defensive guard for fakes.
+            log.warning(
+                "handshake finished but remote_static_pubkey is None; closing"
+            )
+            return
         info = HandshakeInfo(
             peer_addr=peer,
-            remote_static_pubkey=transport.remote_static_pubkey,
+            remote_static_pubkey=remote_pub,
         )
 
         recv_queue: asyncio.Queue = asyncio.Queue(maxsize=recv_queue_size)
@@ -359,20 +405,35 @@ async def _handle_connection(
 
 
 def _default_responder_factory(static_key: bytes) -> NoiseResponderProtocol:
-    """Default responder factory — uses the stub until #18 lands.
+    """Default responder factory — real Noise XX responder from #50."""
+    from tabula_wire.crypto import SecretKey, XXResponder
+    return XXResponder(SecretKey(raw=bytes(static_key)))
 
-    Once #18 is merged, change the import below to
-    ``from wire.crypto.noise_xx import XXResponder`` and return that.
-    The signature stays the same so call sites are unaffected.
-    """
-    from wire.crypto.stub import XXResponderStub
-    return XXResponderStub(static_key)
+
+class _RealProtoCodec:
+    """``FrameCodec`` over the real ``tabula_wire.proto.v1`` bindings."""
+
+    def __init__(self) -> None:
+        from tabula_wire.proto.v1 import ClientFrame, ServerFrame
+        self._client_cls = ClientFrame
+        self._server_cls = ServerFrame
+
+    def encode_server_frame(self, frame: object) -> bytes:
+        if not isinstance(frame, self._server_cls):
+            raise TypeError(
+                f"expected {self._server_cls.__name__}, got {type(frame).__name__}"
+            )
+        return frame.SerializeToString()
+
+    def decode_client_frame(self, data: bytes) -> object:
+        msg = self._client_cls()
+        msg.ParseFromString(data)
+        return msg
 
 
 def _default_codec() -> FrameCodec:
-    """Default proto codec — uses stubs until #16 lands."""
-    from wire.proto import StubProtoCodec
-    return StubProtoCodec()
+    """Default proto codec — real protobuf bindings from #45."""
+    return _RealProtoCodec()
 
 
 async def serve(
@@ -399,11 +460,9 @@ async def serve(
             connection. Receives ``(HandshakeInfo, Session)``. When the
             callback returns or raises, the connection is closed.
         responder_factory: override for the Noise responder
-            constructor. Defaults to the stub from this PR; switch to
-            the real wrapper once #18 lands.
+            constructor. Defaults to ``tabula_wire.crypto.XXResponder``.
         codec: ``FrameCodec`` for ClientFrame/ServerFrame ser/deser.
-            Defaults to the proto stub from this PR; switch once #16
-            lands.
+            Defaults to ``tabula_wire.proto.v1.ProtoCodec``.
         max_frame_size: pre-decrypt ciphertext cap. Default 1 MiB.
         recv_queue_size: bounded queue between the reader pump and
             ``on_session``. Caps memory under a stalled consumer.
