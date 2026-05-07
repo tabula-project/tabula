@@ -105,3 +105,75 @@ Tests cover:
 * Terraform-failure path (state preserved, exit 2).
 * `--force` recovery path.
 * Schema version mismatch rejection.
+
+## `tabula enclave ssh <name> {classifier|gpu|gitea}`
+
+Opens an IAP-tunneled SSH session to a named enclave's classifier, GPU,
+or Gitea VM. Reads `~/.tabula/enclaves/<name>/state.json` (written by
+`tabula enclave up`) for the instance name, zone, and project ID, then
+shells out to:
+
+```
+gcloud compute ssh <instance> \
+    --zone=<zone> \
+    --project=<project> \
+    --tunnel-through-iap \
+    [--ssh-flag=-A]            # only with --forward-agent
+    [--command="..."]          # only with --command
+```
+
+### IAM prerequisites (operator must hold these BEFORE invoking)
+
+The CLI does **not** auto-grant either of the following. If the operator
+lacks them, `gcloud` will surface a clear 403; the CLI passes that error
+through unchanged via exit-code propagation.
+
+* `roles/iap.tunnelResourceAccessor` — to mint IAP tunnel tokens
+* `roles/compute.osLogin` (or `roles/compute.instanceAdmin.v1`) — for
+  OS Login key provisioning
+
+### Examples
+
+```sh
+# Interactive shell into the classifier VM:
+tabula enclave ssh demo classifier
+
+# Run a single command, exit code propagated:
+tabula enclave ssh demo gpu --command "nvidia-smi"
+
+# Agent-forward so you can `git clone` from the in-enclave Gitea while
+# sshed into the GPU VM:
+tabula enclave ssh demo gpu --forward-agent
+
+# Scriptable: do NOT prompt to start a STOPPED GPU; just fail.
+tabula enclave ssh demo gpu --no-start --command "uptime"
+```
+
+### Exit codes
+
+| code | meaning |
+| ---: | --- |
+| `0`  | clean SSH session (or `--command` ran successfully) |
+| `1`  | user error (bad role/name, missing state, TERMINATED VM, gcloud missing) |
+| `2`  | operator declined the GPU auto-start prompt |
+| any other | propagated from the underlying `gcloud` invocation (e.g. `255` for SSH protocol error) |
+
+### State VM lifecycle handling
+
+| GCE status | behavior |
+| --- | --- |
+| `RUNNING` | open SSH session normally |
+| `STOPPED` | warn + prompt to start (unless `--no-start`); declined -> exit `2` |
+| `TERMINATED` | refuse and point at `tabula enclave up <name>` |
+
+`STOPPED` is most common for the GPU VM (sleep schedule from #19); the
+prompt path is reused uniformly for the other roles in case a human
+manually stopped them.
+
+## Future work (out of scope for this PR)
+
+* Browser-based SSH (Cloud Shell SSH UI) — CLI only.
+* Port-forwarding (e.g. `gcloud compute start-iap-tunnel` for Gitea HTTP).
+* Multi-hop SSH (jump from classifier into GPU).
+* SSH key management (relies entirely on OS Login defaults).
+* Auto-granting `roles/iap.tunnelResourceAccessor` to the invoker.
