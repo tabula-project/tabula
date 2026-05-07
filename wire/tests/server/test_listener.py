@@ -19,11 +19,11 @@ import struct
 import pytest
 
 from tabula_wire.crypto import (
-    HandshakeError,
     SecretKey,
     XXInitiator,
     XXResponder,
 )
+from tabula_wire.errors import HandshakeError
 from tabula_wire.framing import (
     LENGTH_PREFIX_BYTES,
     MAX_FRAME_SIZE,

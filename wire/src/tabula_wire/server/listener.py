@@ -44,7 +44,7 @@ from collections.abc import AsyncIterator, Awaitable, Callable
 from dataclasses import dataclass
 from typing import Any, Protocol, runtime_checkable
 
-from tabula_wire.crypto import HandshakeError
+from tabula_wire.errors import HandshakeError
 from tabula_wire.framing import (
     FrameTooLargeError,
     MAX_FRAME_SIZE,
