@@ -1,0 +1,13 @@
+# Copy to terraform.tfvars and edit before running `terraform plan`.
+
+project_id   = "your-gcp-project-id"
+region       = "us-central1"
+zone         = "us-central1-a"
+enclave_name = "demo"
+
+# Wire these to the real outputs of the network and IAM modules in a real
+# deployment. The defaults in variables.tf are placeholder strings sufficient
+# only for `terraform validate`.
+# network_self_link = "projects/your-gcp-project-id/global/networks/demo-vpc"
+# subnet_self_link  = "projects/your-gcp-project-id/regions/us-central1/subnetworks/demo-workload"
+# gitea_sa_email    = "demo-gitea@your-gcp-project-id.iam.gserviceaccount.com"
