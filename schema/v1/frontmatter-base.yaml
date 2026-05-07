@@ -30,7 +30,7 @@ properties:
       Content type. Determines which type-specific schema applies.
       Core types live in schema/v1/types/. Extension namespace types use a
       colon-prefixed form, e.g. luce:shot, bower:chat_thread.
-    pattern: ^([a-z_]+|[a-z_]+:[a-z_]+)$
+    pattern: "^([a-z_]+|[a-z_]+:[a-z_]+)$"
     examples: [decision, observation, person, luce:shot, bower:chat_thread]
 
   created_at:
@@ -75,7 +75,7 @@ properties:
       Encryption recipe identifier, or null for plaintext. Format:
       age:v1:<keyset-id>. The keyset identifier resolves to one or more
       age recipient keys via the consumer's local keyring config.
-    pattern: ^age:v[0-9]+:[a-z0-9-]+$
+    pattern: "^age:v[0-9]+:[a-z0-9-]+$"
     examples: [age:v1:keyset-2026, age:v1:family-tier-2026]
 
   classification:
@@ -100,7 +100,7 @@ properties:
       tools, projects). Enables graph traversal at L3 without parsing body.
     items:
       type: string
-      pattern: ^[a-z_]+:[a-z0-9-]+$
+      pattern: "^[a-z_]+:[a-z0-9-]+$"
     examples:
       - [person:omniscia, org:tabula-project]
       - [shot:eve-s001-c0001, person:charles, location:florence-studio]

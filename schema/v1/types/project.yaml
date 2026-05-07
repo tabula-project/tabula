@@ -22,7 +22,7 @@ allOf:
 
       canonical_id:
         type: string
-        pattern: ^project:[a-z0-9-]+$
+        pattern: "^project:[a-z0-9-]+$"
         description: Stable entity ID. Matches filename slug.
 
       title:
@@ -40,13 +40,13 @@ allOf:
 
       owner:
         type: string
-        pattern: ^person:[a-z0-9-]+$
+        pattern: "^person:[a-z0-9-]+$"
         description: Person canonical ID of the primary owner.
 
       participants:
         type: array
         description: Other people meaningfully involved.
-        items: {type: string, pattern: ^person:[a-z0-9-]+$}
+        items: {type: string, pattern: "^person:[a-z0-9-]+$"}
 
       started:
         type: string
@@ -64,11 +64,11 @@ allOf:
       sub_projects:
         type: array
         description: Project canonical IDs nested under this one.
-        items: {type: string, pattern: ^project:[a-z0-9-]+$}
+        items: {type: string, pattern: "^project:[a-z0-9-]+$"}
 
       org:
         type: [string, "null"]
-        pattern: ^org:[a-z0-9-]+$
+        pattern: "^org:[a-z0-9-]+$"
         description: |
           Organizational ownership. Null for personal projects. Examples:
           org:maj-foundation, org:good-studios, org:tabula-project, org:family.

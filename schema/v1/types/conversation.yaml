@@ -29,7 +29,7 @@ allOf:
       participants:
         type: array
         description: Person canonical IDs in the exchange.
-        items: {type: string, pattern: ^person:[a-z0-9-]+$}
+        items: {type: string, pattern: "^person:[a-z0-9-]+$"}
         minItems: 1
 
       started_at:
@@ -75,7 +75,7 @@ allOf:
           required: [text]
           properties:
             text: {type: string}
-            owner: {type: string, pattern: ^person:[a-z0-9-]+$}
+            owner: {type: string, pattern: "^person:[a-z0-9-]+$"}
             due: {type: [string, "null"], format: date}
             done: {type: boolean, default: false}
 

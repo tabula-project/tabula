@@ -22,7 +22,7 @@ allOf:
 
       canonical_id:
         type: string
-        pattern: ^person:[a-z0-9-]+$
+        pattern: "^person:[a-z0-9-]+$"
         description: |
           The canonical entity ID. Used in other records' `entities` and
           `relations`. Should match the slug part of this record's filename

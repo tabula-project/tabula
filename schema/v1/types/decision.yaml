@@ -101,7 +101,7 @@ allOf:
           multiple stewards/co-founders. Used by Luce's commitment gate.
         items:
           type: string
-          pattern: ^[a-z_]+:[a-z0-9-]+$
+          pattern: "^[a-z_]+:[a-z0-9-]+$"
 
 examples:
   - id: 01HXAA9ABCDEF12345NOPQR
