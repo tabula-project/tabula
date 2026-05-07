@@ -1,31 +1,35 @@
-"""`tabula chat connect` — readline UI with streaming response rendering (#29).
+"""`tabula chat` Typer subcommand group with `connect` as the primary command.
 
 Architecture:
     - one asyncio event loop runs the wire I/O
     - a dedicated thread reads stdin via :mod:`readline` (line-buffered, with
       basic editing/history) and pushes each line onto a :class:`asyncio.Queue`
-    - the main loop multiplexes between (a) input queue → ``UserMessage`` and
-      (b) ``ChatChannel.recv()`` → stdout/stderr render
+    - the main loop multiplexes between (a) input queue -> ``UserMessage`` and
+      (b) ``ChatChannel.recv()`` -> stdout/stderr render
     - tokens are written to stdout with ``flush=True`` per token (no print()
       overhead, no newline buffering); ``AssistantTurnEnd`` emits a newline,
       a subtle separator, and re-prompts
 
 Sibling-issue boundaries:
-    - the dialer (#27) is invoked through :func:`wire.client.connect`; tests
-      inject a fake :class:`ChatChannel` so this module is exercised without
-      a real socket
-    - the pinning store (#32) is consulted via :func:`wire.client.lookup`;
-      ``--host`` / ``--port`` / ``--accept-key`` provide an explicit override
-      path that ships independently of #32
-    - the keygen (#31) only owns the secret-key file format. This module
-      reads the file as raw bytes (or the documented 2-line hex format) so
-      it can ship before #31 lands. The default path is
-      ``~/.config/tabula/client_key`` per #31's locked default
+    - the dialer (#27/#56) is invoked through :func:`tabula_wire.client.dialer.connect`;
+      tests inject a fake :class:`ChatChannel` so this module is exercised
+      without a real socket
+    - the pinning store (#32/#54) is consulted via
+      :func:`tabula_wire.client.pinning.lookup`; ``--host`` / ``--port`` /
+      ``--accept-key`` provide an explicit override path
+    - the typed exception hierarchy (#36/#54/#56) lives in
+      :mod:`tabula_wire.client.exceptions`
+    - the wire frames (#16/#45) live in :mod:`tabula_wire.proto.v1`
+
+This module is mounted on the canonical Typer ``app`` in
+:mod:`tabula_cli.main` (owned by #57's canonical layout). The mount looks like:
+
+    from tabula_cli.chat.main import app as chat_app
+    app.add_typer(chat_app, name="chat")
 """
 
 from __future__ import annotations
 
-import argparse
 import asyncio
 import os
 import sys
@@ -35,17 +39,18 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from wire.client import (
-    ChatChannel,
+import typer
+
+from tabula_wire.client.dialer import ChatChannel, connect
+from tabula_wire.client.exceptions import (
     ClientError,
     ConnectError,
     ProtocolError,
     ServerDisconnected,
     ServerKeyMismatch,
-    connect,
-    lookup,
 )
-from wire.proto import (
+from tabula_wire.client.pinning import lookup
+from tabula_wire.proto.v1 import (
     AssistantToken,
     AssistantTurnEnd,
     EndSession,
@@ -62,71 +67,88 @@ SEPARATOR = "\n───\n"  # newline + horizontal box-drawing line + newline
 _PROTOCOL_VERSION = 1
 
 
-# --- public registration --------------------------------------------------------
+# --- Typer subcommand group -----------------------------------------------------
+
+app = typer.Typer(
+    name="chat",
+    help="Chat client commands.",
+    no_args_is_help=True,
+)
 
 
-def register(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
-    """Attach the `chat connect` subcommand to a parser group."""
-
-    connect_parser = subparsers.add_parser(
-        "connect",
-        help="Open a chat session against a Tabula enclave",
-        description=(
-            "Open a chat session against a Tabula enclave. "
-            "Resolves <server-name> through the pinning store unless "
-            "--host/--port/--accept-key are provided."
-        ),
-    )
-    connect_parser.add_argument(
-        "server",
-        nargs="?",
-        help="Pinned server label (resolves host/port/expected pubkey)",
-    )
-    connect_parser.add_argument(
+@app.command("connect")
+def connect_command(
+    server: str | None = typer.Argument(
+        None,
+        help="Pinned server label (resolves host/port/expected pubkey).",
+    ),
+    host: str | None = typer.Option(
+        None,
         "--host",
-        help="Override host (requires --port and --accept-key)",
-    )
-    connect_parser.add_argument(
+        help="Override host (requires --port and --accept-key).",
+    ),
+    port: int | None = typer.Option(
+        None,
         "--port",
-        type=int,
-        default=None,
-        help="Override port (requires --host)",
-    )
-    connect_parser.add_argument(
+        help="Override port (requires --host).",
+    ),
+    accept_key: str | None = typer.Option(
+        None,
         "--accept-key",
         help=(
             "Hex-encoded server static pubkey to trust for this connection "
-            "(required when --host is used and the label is not pinned)"
+            "(required when --host is used and the label is not pinned)."
         ),
-    )
-    connect_parser.add_argument(
+    ),
+    key_path: str = typer.Option(
+        DEFAULT_KEY_PATH,
         "--key-path",
-        default=DEFAULT_KEY_PATH,
-        help=f"Client static key file (default: {DEFAULT_KEY_PATH})",
-    )
-    connect_parser.add_argument(
+        help=f"Client static key file (default: {DEFAULT_KEY_PATH}).",
+    ),
+    connect_timeout: float = typer.Option(
+        10.0,
         "--connect-timeout",
-        type=float,
-        default=10.0,
-        help="Seconds to wait for TCP + handshake (default: 10.0)",
+        help="Seconds to wait for TCP + handshake (default: 10.0).",
+    ),
+) -> None:
+    """Open a chat session against a Tabula enclave.
+
+    Resolves ``<server>`` through the pinning store unless
+    ``--host`` / ``--port`` / ``--accept-key`` are provided.
+    """
+
+    rc = _run_connect(
+        server=server,
+        host=host,
+        port=port,
+        accept_key=accept_key,
+        key_path=key_path,
+        connect_timeout=connect_timeout,
     )
-    connect_parser.set_defaults(_handler=_handle_connect)
+    raise typer.Exit(code=rc)
 
 
-# --- argparse handler -----------------------------------------------------------
-
-
-def _handle_connect(args: argparse.Namespace) -> int:
+def _run_connect(
+    *,
+    server: str | None,
+    host: str | None,
+    port: int | None,
+    accept_key: str | None,
+    key_path: str,
+    connect_timeout: float,
+) -> int:
     """Resolve target, load key, open channel, run UI."""
 
     try:
-        target = _resolve_target(args)
+        target = _resolve_target(
+            server=server, host=host, port=port, accept_key=accept_key
+        )
     except _UsageError as exc:
         print(f"tabula chat connect: {exc}", file=sys.stderr)
         return 2
 
     try:
-        local_static_key = _load_static_key(args.key_path)
+        local_static_key = _load_static_key(key_path)
     except FileNotFoundError as exc:
         print(f"tabula chat connect: {exc}", file=sys.stderr)
         return 2
@@ -135,8 +157,8 @@ def _handle_connect(args: argparse.Namespace) -> int:
         _run_session(
             target=target,
             local_static_key=local_static_key,
-            connect_timeout=args.connect_timeout,
-            channel_factory=None,  # production path uses wire.client.connect
+            connect_timeout=connect_timeout,
+            channel_factory=None,  # production path uses tabula_wire.client.dialer.connect
             stdout=sys.stdout,
             stderr=sys.stderr,
             input_source=None,  # production path reads real stdin via readline
@@ -156,21 +178,27 @@ class _Target:
 
 
 class _UsageError(Exception):
-    """Argparse-level usage error reported to the user with exit code 2."""
+    """CLI-level usage error reported to the user with exit code 2."""
 
 
-def _resolve_target(args: argparse.Namespace) -> _Target:
+def _resolve_target(
+    *,
+    server: str | None,
+    host: str | None,
+    port: int | None,
+    accept_key: str | None,
+) -> _Target:
     """Pick the connection target from CLI flags + pinning store.
 
     Three valid combinations:
-      1. ``server`` only                → look up label in pinning store
-      2. ``--host --port --accept-key`` → ad-hoc connection (label optional)
-      3. ``server`` + overrides         → label is the display name; overrides win
+      1. ``server`` only                -> look up label in pinning store
+      2. ``--host --port --accept-key`` -> ad-hoc connection (label optional)
+      3. ``server`` + overrides         -> label is the display name; overrides win
     """
 
-    has_host = args.host is not None
-    has_port = args.port is not None
-    has_key = args.accept_key is not None
+    has_host = host is not None
+    has_port = port is not None
+    has_key = accept_key is not None
 
     # Explicit override path: all three of host/port/accept-key required together.
     if has_host or has_port or has_key:
@@ -179,22 +207,27 @@ def _resolve_target(args: argparse.Namespace) -> _Target:
                 "--host, --port, and --accept-key must be provided together"
             )
         try:
-            pubkey = bytes.fromhex(args.accept_key)
+            pubkey = bytes.fromhex(accept_key)  # type: ignore[arg-type]
         except ValueError as exc:
             raise _UsageError(f"--accept-key must be hex-encoded: {exc}") from exc
-        label = args.server or f"{args.host}:{args.port}"
-        return _Target(label=label, host=args.host, port=args.port, expected_pubkey=pubkey)
+        label = server or f"{host}:{port}"
+        return _Target(
+            label=label,
+            host=host,  # type: ignore[arg-type]
+            port=port,  # type: ignore[arg-type]
+            expected_pubkey=pubkey,
+        )
 
     # Pinning-only path: server label required.
-    if not args.server:
+    if not server:
         raise _UsageError(
-            "either <server-name> or --host/--port/--accept-key is required"
+            "either <server> or --host/--port/--accept-key is required"
         )
-    entry = lookup(args.server)
+    entry = lookup(server)
     if entry is None:
         raise _UsageError(
-            f"server label {args.server!r} is not pinned; "
-            "add it via `tabula servers add` (see #32) or use "
+            f"server label {server!r} is not pinned; "
+            "add it via `tabula servers add` or use "
             "--host/--port/--accept-key"
         )
     return _Target(
@@ -208,22 +241,22 @@ def _resolve_target(args: argparse.Namespace) -> _Target:
 def _load_static_key(path_str: str) -> bytes:
     """Load the client static-key bytes from disk.
 
-    Accepts either of the two formats described in #31:
+    Accepts either of the two formats described in #31/#46:
       - raw 32-byte file
       - 2-line text format: header line ``tabula-x25519-secret-v1`` + 64 hex chars
 
-    The chat UI does not validate the key cryptographically — that happens
-    inside the Noise handshake in #27. We only enforce ``stat`` mode 0600
+    The chat UI does not validate the key cryptographically -- that happens
+    inside the Noise handshake (#27/#56). We only enforce ``stat`` mode 0600
     advisory and the file shape so misconfiguration fails fast.
     """
 
     path = Path(path_str).expanduser()
     if not path.exists():
         raise FileNotFoundError(
-            f"client static key not found at {path}; run `tabula keygen` (see #31)"
+            f"client static key not found at {path}; run `tabula keygen`"
         )
 
-    # Permission warning (advisory; #31 owns the canonical check).
+    # Permission warning (advisory; #31/#46 owns the canonical check).
     try:
         mode = path.stat().st_mode & 0o777
     except OSError:
@@ -367,7 +400,7 @@ def _readline_thread(
 
     # Importing readline rebinds input() to use it on macOS/Linux. Windows
     # support is explicitly out of MVP scope per the issue scope notes.
-    try:  # pragma: no cover — platform-dependent
+    try:  # pragma: no cover -- platform-dependent
         import readline  # noqa: F401
     except ImportError:
         pass
@@ -393,7 +426,7 @@ async def _session_loop(
     stderr: Any,
     session_label: str,
 ) -> int:
-    """Multiplex stdin → UserMessage and channel.recv() → render.
+    """Multiplex stdin -> UserMessage and channel.recv() -> render.
 
     Returns:
         0  on clean EOF + ``EndSession`` ack
@@ -527,7 +560,7 @@ def _render_server_frame(frame: Any, stdout: Any, stderr: Any) -> int | None:
 
     if isinstance(frame, AssistantToken):
         # Streaming render: write the chunk verbatim, flush per token. No
-        # print() — its newline + sep handling is the wrong shape here.
+        # print() -- its newline + sep handling is the wrong shape here.
         stdout.write(frame.text)
         stdout.flush()
         return None
@@ -559,7 +592,7 @@ def _render_server_frame(frame: Any, stdout: Any, stderr: Any) -> int | None:
 # --- module export --------------------------------------------------------------
 
 __all__ = [
-    "register",
+    "app",
     "DEFAULT_KEY_PATH",
     "DEFAULT_PORT",
     "PROMPT",

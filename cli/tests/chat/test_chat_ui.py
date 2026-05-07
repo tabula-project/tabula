@@ -1,4 +1,4 @@
-"""Smoke + behavioural tests for the chat UI in ``cli.chat``.
+"""Smoke + behavioural tests for the chat UI in ``tabula_cli.chat.main``.
 
 Covers:
   * streaming render: a scripted token sequence reaches stdout in order,
@@ -10,7 +10,6 @@ Covers:
       - missing flag combinations
       - unpinned label without overrides
   * key-file loading: 32-byte raw + 2-line hex format
-  * argparse plumbing: `tabula chat connect` is registered and reachable
 
 We intentionally do **not** spin up real sockets or threads; the readline
 thread seam takes a duck-typed queue and the dialer seam takes a factory
@@ -27,15 +26,13 @@ from typing import Any
 
 import pytest
 
-import cli  # noqa: F401  — ensures top-level package importable
-from cli import chat
-from wire.client import (
-    ChatChannel,
+from tabula_cli.chat import main as chat
+from tabula_wire.client.exceptions import (
     ProtocolError,
     ServerDisconnected,
     ServerKeyMismatch,
 )
-from wire.proto import (
+from tabula_wire.proto.v1 import (
     AssistantToken,
     AssistantTurnEnd,
     ClientFrame,
@@ -392,17 +389,16 @@ def test_error_frame_at_handshake_exits_3() -> None:
     assert "bad_version" in stderr.getvalue()
 
 
-# --- tests: argparse / target resolution ----------------------------------------
+# --- tests: target resolution ---------------------------------------------------
 
 
 def test_resolve_target_explicit_overrides() -> None:
-    args = _ns(
+    t = chat._resolve_target(
         server=None,
         host="1.2.3.4",
         port=9000,
         accept_key="00" * 32,
     )
-    t = chat._resolve_target(args)
     assert t.host == "1.2.3.4"
     assert t.port == 9000
     assert t.expected_pubkey == bytes.fromhex("00" * 32)
@@ -410,42 +406,40 @@ def test_resolve_target_explicit_overrides() -> None:
 
 
 def test_resolve_target_partial_overrides_rejected() -> None:
-    args = _ns(server="ent", host="x", port=None, accept_key=None)
     with pytest.raises(chat._UsageError, match="must be provided together"):
-        chat._resolve_target(args)
+        chat._resolve_target(server="ent", host="x", port=None, accept_key=None)
 
 
 def test_resolve_target_unpinned_label_rejected() -> None:
-    # The stub `lookup` always returns None.
-    args = _ns(server="never-pinned", host=None, port=None, accept_key=None)
+    # The canonical `lookup` returns None for unknown labels.
     with pytest.raises(chat._UsageError, match="not pinned"):
-        chat._resolve_target(args)
+        chat._resolve_target(
+            server="never-pinned", host=None, port=None, accept_key=None
+        )
 
 
 def test_resolve_target_no_args_rejected() -> None:
-    args = _ns(server=None, host=None, port=None, accept_key=None)
     with pytest.raises(chat._UsageError, match="required"):
-        chat._resolve_target(args)
+        chat._resolve_target(server=None, host=None, port=None, accept_key=None)
 
 
 def test_resolve_target_bad_hex_rejected() -> None:
-    args = _ns(server=None, host="h", port=1, accept_key="not-hex")
     with pytest.raises(chat._UsageError, match="hex"):
-        chat._resolve_target(args)
+        chat._resolve_target(server=None, host="h", port=1, accept_key="not-hex")
 
 
-def test_top_level_parser_registers_chat_connect() -> None:
-    """`tabula chat connect <name>` is reachable from the entrypoint."""
+# --- tests: Typer mounting ------------------------------------------------------
 
-    parser = cli._make_parser()
-    parsed = parser.parse_args(
-        ["chat", "connect", "--host", "h", "--port", "1", "--accept-key", "00" * 32]
-    )
-    assert parsed.cmd == "chat"
-    assert parsed.chat_cmd == "connect"
-    assert parsed.host == "h"
-    assert parsed.port == 1
-    assert parsed.accept_key == "00" * 32
+
+def test_chat_app_is_a_typer_subcommand_group() -> None:
+    """`chat` is a Typer app with `connect` registered as a command."""
+
+    import typer
+
+    assert isinstance(chat.app, typer.Typer)
+    # The app exposes a `connect` command -- enumerate registered commands.
+    command_names = {cmd.name for cmd in chat.app.registered_commands}
+    assert "connect" in command_names
 
 
 # --- tests: key file loading ----------------------------------------------------
@@ -552,18 +546,3 @@ def test_readline_thread_pumps_lines_into_queue() -> None:
 
     received = _run(runner())
     assert received == ["alpha", "beta", None]
-
-
-# --- helpers --------------------------------------------------------------------
-
-
-def _ns(**kwargs: Any):
-    """Build an argparse-like Namespace without invoking argparse."""
-
-    class _NS:
-        pass
-
-    ns = _NS()
-    for k, v in kwargs.items():
-        setattr(ns, k, v)
-    return ns
