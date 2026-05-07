@@ -21,7 +21,8 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from tabula_wire.proto.v1 import ClientFrame, ServerFrame
-from tabula_wire.server.session import ClaudeProcessCrashed, ClaudeProcessProtocol
+from tabula_wire.server.claude_driver import ClaudeProcessCrashed
+from tabula_wire.server.session import ClaudeProcessProtocol
 
 
 # ---------------------------------------------------------------------------
@@ -111,8 +112,7 @@ class FakeClaudeProcess:
                 self._alive = False
                 self._exit_code = turn.crash_exit_code
                 raise ClaudeProcessCrashed(
-                    "fake claude exploded",
-                    exit_code=turn.crash_exit_code,
+                    returncode=turn.crash_exit_code,
                     stderr_tail=turn.crash_stderr,
                 )
 

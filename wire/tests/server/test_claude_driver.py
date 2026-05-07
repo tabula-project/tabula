@@ -1,6 +1,6 @@
-"""Unit tests for ``wire.server.claude_driver.ClaudeProcess``.
+"""Unit tests for :class:`tabula_wire.server.claude_driver.ClaudeProcess`.
 
-The tests use ``wire/server/tests/fixtures/fake_claude.sh`` as a stand-in for
+The tests use ``wire/tests/server/fixtures/fake_claude.sh`` as a stand-in for
 the real ``claude`` CLI. The fixture's mode is selected by setting the
 ``FAKE_CLAUDE_MODE`` environment variable; behaviors are documented inside
 the fixture script.
@@ -19,7 +19,7 @@ from pathlib import Path
 
 import pytest
 
-from claude_driver import (
+from tabula_wire.server.claude_driver import (
     ClaudeProcess,
     ClaudeProcessCrashed,
     ClaudeProcessNotStarted,

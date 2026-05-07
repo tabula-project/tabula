@@ -63,37 +63,13 @@ from tabula_wire.proto.v1 import (
     UserMessage,
     Welcome,
 )
+from tabula_wire.server.claude_driver import ClaudeProcessCrashed
 from tabula_wire.server.config import ServerConfig
 
 
 # ---------------------------------------------------------------------------
 # Public types
 # ---------------------------------------------------------------------------
-
-
-class ClaudeProcessCrashed(RuntimeError):
-    """Raised by ``ClaudeProcess.stream_tokens`` when the subprocess died.
-
-    This module re-exports the exception type that the driver in #22 will
-    raise. Defining it here keeps the session manager landable before #22
-    merges; the driver should import this symbol (or a compatible class
-    with the same name in :mod:`tabula_wire.server.claude_driver`).
-
-    Attributes:
-        exit_code: subprocess exit status, if known.
-        stderr_tail: last ~1 KiB of stderr, if captured.
-    """
-
-    def __init__(
-        self,
-        message: str = "claude subprocess crashed",
-        *,
-        exit_code: int | None = None,
-        stderr_tail: str = "",
-    ) -> None:
-        super().__init__(message)
-        self.exit_code = exit_code
-        self.stderr_tail = stderr_tail
 
 
 @runtime_checkable
@@ -263,9 +239,9 @@ async def _stream_one_turn(
     except ClaudeProcessCrashed as exc:
         log.error(
             "claude subprocess crashed mid-turn after %d token(s) "
-            "(exit_code=%s)",
+            "(returncode=%s)",
             sequence,
-            exc.exit_code,
+            exc.returncode,
         )
         await _send_error(
             send_frame,

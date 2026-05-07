@@ -14,7 +14,7 @@ Listener (issue #20, landed in #55):
   callback.
 - :data:`SessionCallback` — type alias for the per-session callback.
 
-Session manager (issue #25, this PR):
+Session manager (issue #25, landed in #49):
 
 - :func:`handle_session` — drives one Noise session: Hello/Welcome,
   per-turn streaming of assistant tokens, EndSession, error mapping.
@@ -25,19 +25,31 @@ Session manager (issue #25, this PR):
   :func:`handle_connection`.
 - :func:`reject_at_capacity` — send a typed ``ErrorFrame{AT_CAPACITY}``.
 - :class:`ClaudeProcessProtocol` / :data:`ClaudeFactory` — Protocols
-  decoupling the session manager from the claude driver (issue #22).
-- :class:`ClaudeProcessCrashed` — raised by the driver to signal a
-  non-recoverable subprocess failure.
+  decoupling the session manager from the claude driver.
 - :data:`SendFrame` — type alias for the per-session send callable.
 - :class:`ServerConfig` — server configuration knobs.
 
+Claude driver (issue #22, consolidated under this package in #70):
+
+- :class:`ClaudeProcess` — async subprocess driver around the
+  ``claude`` CLI. One subprocess per session (per Epic #13).
+- :class:`ClaudeProcessCrashed` — raised by ``stream_tokens`` when
+  the subprocess exits unexpectedly.
+- :class:`ClaudeProcessNotStarted` — raised when an operation requires
+  the process to have been started (e.g. ``send_prompt`` before
+  ``start``).
+
 This package does NOT:
 
-- spawn or manage the claude subprocess (issue #22)
 - implement the client side (issue #27)
 - enforce server-pubkey pinning (issue #32, on the *client* side)
 """
 
+from .claude_driver import (
+    ClaudeProcess,
+    ClaudeProcessCrashed,
+    ClaudeProcessNotStarted,
+)
 from .config import ServerConfig
 from .listener import (
     HandshakeInfo,
@@ -51,7 +63,6 @@ from .main import (
 )
 from .session import (
     ClaudeFactory,
-    ClaudeProcessCrashed,
     ClaudeProcessProtocol,
     SendFrame,
     handle_session,
@@ -66,7 +77,6 @@ __all__ = [
     "serve",
     # session manager (#25)
     "ClaudeFactory",
-    "ClaudeProcessCrashed",
     "ClaudeProcessProtocol",
     "SendFrame",
     "ServerConfig",
@@ -74,4 +84,8 @@ __all__ = [
     "handle_session",
     "reject_at_capacity",
     "serve_with_sessions",
+    # claude driver (#22, consolidated in #70)
+    "ClaudeProcess",
+    "ClaudeProcessCrashed",
+    "ClaudeProcessNotStarted",
 ]
