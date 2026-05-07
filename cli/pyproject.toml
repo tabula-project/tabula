@@ -11,11 +11,14 @@ authors = [
 classifiers = [
   "License :: OSI Approved :: Apache Software License",
   "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
 ]
 dependencies = [
-  # No hard runtime deps for the down command — shells out to `terraform` and
-  # `gcloud` for portability. SDKs (google-cloud-compute) are an optional
-  # extra so test environments do not need GCP auth installed.
+  # `up` (#26) uses Typer for the operator-friendly help/prompts surface.
+  # `down` (#28) shells out to terraform and gcloud for portability; SDK
+  # extras (google-cloud-compute) live in [project.optional-dependencies]
+  # so test environments do not need GCP auth installed.
+  "typer>=0.12",
 ]
 
 [project.optional-dependencies]
@@ -27,7 +30,7 @@ test = [
 ]
 
 [project.scripts]
-tabula = "tabula_cli.cli:main"
+tabula = "tabula_cli.main:app"
 
 [build-system]
 requires = ["hatchling"]

@@ -21,6 +21,8 @@ Tabula is open-source infrastructure shared by a small set of independent applic
 - **[l3/](l3/)** — knowledge graph: Postgres + Apache AGE + pgvector + Graphiti
 - **[etl/](etl/)** — L2 → L1 distillation framework + Path C reference pattern
 - **[schema/](schema/)** — canonical content-type vocabulary (v1 in progress)
+- **[cli/](cli/)** — operator CLI: `tabula enclave {up,down}` and friends (issues #26, #28)
+- **[terraform/enclave/](terraform/enclave/)** — Terraform root module the CLI drives (composes sibling modules; uses stubs while #14, #15, #17, #19, #21, #23, #24 land)
 
 ## Stewards (proposed)
 
