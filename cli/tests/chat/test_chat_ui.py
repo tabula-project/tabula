@@ -156,13 +156,13 @@ def _run(coro):
 def test_streaming_render_emits_tokens_in_order_with_separator_and_reprompt() -> None:
     """A scripted Welcome + 3 tokens + turn end + EOF produces the expected stdout."""
 
-    welcome = Welcome(session_id="sess-1", server_identity_hint="enclave")
+    welcome = Welcome(session_id="sess-1", server_identity="enclave")
     script = [
         welcome,
-        AssistantToken(text="Hello", seq=0),
-        AssistantToken(text=", ", seq=1),
-        AssistantToken(text="world!", seq=2),
-        AssistantTurnEnd(finish_reason="stop"),
+        AssistantToken(text="Hello", sequence=0),
+        AssistantToken(text=", ", sequence=1),
+        AssistantToken(text="world!", sequence=2),
+        AssistantTurnEnd(finish_reason=AssistantTurnEnd.FINISH_REASON_STOP),
     ]
     channel = FakeChannel(script)
     queue = FakeQueue([None])  # EOF immediately
@@ -203,7 +203,7 @@ def test_user_message_lines_are_sent_per_line() -> None:
     """Each stdin line becomes exactly one ``UserMessage``."""
 
     welcome = Welcome(session_id="s1")
-    script = [welcome, AssistantTurnEnd(finish_reason="stop")]
+    script = [welcome, AssistantTurnEnd(finish_reason=AssistantTurnEnd.FINISH_REASON_STOP)]
     channel = FakeChannel(script)
     queue = FakeQueue(["first line", "second line", None])
 
@@ -260,7 +260,7 @@ def test_server_disconnect_mid_session_exits_4_with_clear_message() -> None:
     channel = FakeChannel(
         [
             welcome,
-            AssistantToken(text="partial", seq=0),
+            AssistantToken(text="partial", sequence=0),
             ServerDisconnected("peer closed"),
         ]
     )
@@ -287,7 +287,7 @@ def test_server_disconnect_mid_session_exits_4_with_clear_message() -> None:
 def test_error_frame_exits_3_with_code_and_message() -> None:
     welcome = Welcome(session_id="s")
     channel = FakeChannel(
-        [welcome, ErrorFrame(code="rate_limited", message="slow down")]
+        [welcome, ErrorFrame(code=ErrorFrame.Code.AT_CAPACITY, message="slow down")]
     )
     queue = FakeQueue([])
 
@@ -306,7 +306,10 @@ def test_error_frame_exits_3_with_code_and_message() -> None:
 
     assert rc == 3
     msg = stderr.getvalue()
-    assert "rate_limited" in msg
+    # The renderer formats the enum int via ``f"[{frame.code}]"``; assert the
+    # numeric AT_CAPACITY value is present rather than the legacy free-form
+    # string. ``message`` is rendered verbatim.
+    assert f"[{int(ErrorFrame.Code.AT_CAPACITY)}]" in msg
     assert "slow down" in msg
 
 
@@ -356,7 +359,7 @@ def test_server_key_mismatch_during_connect_exits_5() -> None:
 def test_unexpected_first_frame_is_protocol_error() -> None:
     """If the server's first frame is not Welcome/Error, exit 5."""
 
-    channel = FakeChannel([AssistantToken(text="huh", seq=0)])
+    channel = FakeChannel([AssistantToken(text="huh", sequence=0)])
     rc = _run(
         chat._run_session(
             target=_target(),
@@ -372,7 +375,9 @@ def test_unexpected_first_frame_is_protocol_error() -> None:
 
 
 def test_error_frame_at_handshake_exits_3() -> None:
-    channel = FakeChannel([ErrorFrame(code="bad_version", message="upgrade")])
+    channel = FakeChannel(
+        [ErrorFrame(code=ErrorFrame.Code.PROTOCOL, message="upgrade: bad_version")]
+    )
     stderr = io.StringIO()
     rc = _run(
         chat._run_session(
@@ -386,6 +391,9 @@ def test_error_frame_at_handshake_exits_3() -> None:
         )
     )
     assert rc == 3
+    # The renderer formats the enum int via ``f"[{first.code}]"``; the
+    # legacy free-form ``"bad_version"`` string is preserved in the message
+    # body so this assertion still passes against the canonical proto.
     assert "bad_version" in stderr.getvalue()
 
 

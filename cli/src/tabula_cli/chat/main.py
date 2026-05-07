@@ -542,7 +542,7 @@ def _print_banner(stdout: Any, label: str, welcome: Welcome) -> None:
     banner = (
         f"connected to {label}  "
         f"(session {welcome.session_id}"
-        + (f", {welcome.server_identity_hint}" if welcome.server_identity_hint else "")
+        + (f", {welcome.server_identity}" if welcome.server_identity else "")
         + ")\n"
         "type a message and press enter; Ctrl-D to end\n"
     )
