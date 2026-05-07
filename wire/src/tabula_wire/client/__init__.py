@@ -10,8 +10,9 @@ Public surface:
 - :mod:`tabula_wire.client.pinning` (#32) — the on-disk server pubkey
   pinning store at ``~/.config/tabula/known_servers``. Re-exports its
   public surface for ergonomic access.
-- Typed exceptions: :class:`ConnectTimeout`, :class:`ConnectRefused`,
-  :class:`DnsError`, :class:`ServerKeyMismatch`, :class:`ProtocolError`,
+- Typed exceptions: :class:`ConnectError` (base for connect-phase failures)
+  with subclasses :class:`ConnectTimeout`, :class:`ConnectRefused`,
+  :class:`DnsError`; :class:`ServerKeyMismatch`, :class:`ProtocolError`,
   :class:`ClientError` (base) for the dialer; :class:`PinningError`,
   :class:`UnknownLabelError`, :class:`DuplicateLabelError`,
   :class:`InvalidPubkeyError` for the pinning store.
@@ -22,6 +23,7 @@ from __future__ import annotations
 from .dialer import ChatChannel, connect
 from .exceptions import (
     ClientError,
+    ConnectError,
     ConnectRefused,
     ConnectTimeout,
     DnsError,
@@ -52,6 +54,7 @@ __all__ = [
     "connect",
     # Connection / handshake exceptions (#27)
     "ClientError",
+    "ConnectError",
     "ConnectRefused",
     "ConnectTimeout",
     "DnsError",
