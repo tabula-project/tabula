@@ -64,7 +64,7 @@ allOf:
       decisions_made:
         type: array
         description: Decision record IDs that emerged from this conversation.
-        items: {type: string, pattern: ^[0-9A-HJKMNP-TV-Z]{26}$}
+        items: {type: string, pattern: "^[0-9A-HJKMNP-TV-Z]{26}$"}
 
       action_items:
         type: array
