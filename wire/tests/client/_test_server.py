@@ -11,7 +11,7 @@ behaviour to exercise the client end-to-end:
 - echo any received ``ClientFrame`` back as ``ServerFrame`` (kind ``echo``)
 
 When #20 merges, tests in this file should be migrated to the real
-``wire.server.listener.serve`` and this fixture deleted.
+``tabula_wire.server.listener.serve`` and this fixture deleted.
 """
 
 from __future__ import annotations
@@ -20,9 +20,9 @@ import asyncio
 from dataclasses import dataclass, field
 from typing import Awaitable, Callable
 
-from wire.crypto import KeyPair, NoiseError, XXResponder
-from wire.framing import FrameError, FrameTooLarge, encode_frame, read_frame
-from wire.proto import ClientFrame, ServerFrame
+from tabula_wire.crypto.noise_xx import KeyPair, NoiseError, XXResponder
+from tabula_wire.framing import FrameError, FrameTooLarge, encode_frame, read_frame
+from tabula_wire.proto.v1 import ClientFrame, ServerFrame
 
 
 @dataclass

@@ -13,8 +13,8 @@ Wire format (must match #20):
   ciphertext whose plaintext is a serialized ``ServerFrame`` (server -> client)
   or ``ClientFrame`` (client -> server).
 
-The length-prefix codec lives in :mod:`wire.framing` so the server (#20) and
-the client (this module) share a single source of truth.
+The length-prefix codec lives in :mod:`tabula_wire.framing` so the server (#20)
+and the client (this module) share a single source of truth.
 
 Threading / cancellation model:
 - :func:`connect` opens the connection and runs the handshake under
@@ -32,9 +32,14 @@ import asyncio
 import socket
 from typing import AsyncIterator
 
-from wire.crypto import KeyMismatchError, KeyPair, NoiseError, XXInitiator
-from wire.framing import FrameError, FrameTooLarge, encode_frame, read_frame
-from wire.proto import ClientFrame, ProtoError, ServerFrame
+from tabula_wire.crypto.noise_xx import (
+    KeyMismatchError,
+    KeyPair,
+    NoiseError,
+    XXInitiator,
+)
+from tabula_wire.framing import FrameError, FrameTooLarge, encode_frame, read_frame
+from tabula_wire.proto.v1 import ClientFrame, ProtoError, ServerFrame
 
 from .exceptions import (
     ConnectRefused,

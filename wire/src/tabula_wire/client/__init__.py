@@ -20,6 +20,7 @@ from .exceptions import (
     ConnectTimeout,
     DnsError,
     ProtocolError,
+    ServerDisconnected,
     ServerKeyMismatch,
 )
 
@@ -30,6 +31,7 @@ __all__ = [
     "ConnectTimeout",
     "DnsError",
     "ProtocolError",
+    "ServerDisconnected",
     "ServerKeyMismatch",
     "connect",
 ]

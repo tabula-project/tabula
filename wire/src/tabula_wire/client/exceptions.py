@@ -4,6 +4,9 @@ The acceptance criteria in #27 require connection-level failures to surface
 as typed exceptions distinct from protocol-level failures so the CLI in #29
 / error-handler in #36 can offer the right user message for each.
 
+This is the single canonical hierarchy reconciled across #27 (dialer) and
+#54 (pinning store / ``tabula servers`` CLI).
+
 Hierarchy::
 
     ClientError
@@ -13,13 +16,14 @@ Hierarchy::
     +-- ServerKeyMismatch    (handshake completed but pubkey != pinned)
     +-- ProtocolError        (decrypt failure, malformed proto, framing
                               violation, oversize frame, mid-stream EOF)
+    +-- ServerDisconnected   (peer closed the transport mid-session)
 """
 
 from __future__ import annotations
 
 
 class ClientError(Exception):
-    """Base class for all errors raised by ``wire.client``."""
+    """Base class for all errors raised by ``tabula_wire.client``."""
 
 
 class ConnectTimeout(ClientError):
@@ -44,6 +48,10 @@ class ProtocolError(ClientError):
     bad framing, oversize frame, or mid-stream EOF."""
 
 
+class ServerDisconnected(ClientError):
+    """The server closed the transport mid-session (clean EOF after handshake)."""
+
+
 __all__ = [
     "ClientError",
     "ConnectTimeout",
@@ -51,4 +59,5 @@ __all__ = [
     "DnsError",
     "ServerKeyMismatch",
     "ProtocolError",
+    "ServerDisconnected",
 ]

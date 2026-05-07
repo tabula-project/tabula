@@ -1,4 +1,4 @@
-"""Tests for ``wire.client.dialer``.
+"""Tests for ``tabula_wire.client.dialer``.
 
 Acceptance-criteria coverage map (issue #27):
 
@@ -33,7 +33,7 @@ import socket
 
 import pytest
 
-from wire.client import (
+from tabula_wire.client import (
     ChatChannel,
     ConnectRefused,
     ConnectTimeout,
@@ -42,8 +42,8 @@ from wire.client import (
     ServerKeyMismatch,
     connect,
 )
-from wire.crypto import generate_keypair
-from wire.proto import ClientFrame, ServerFrame
+from tabula_wire.crypto.noise_xx import generate_keypair
+from tabula_wire.proto.v1 import ClientFrame, ServerFrame
 
 from ._test_server import FakeServer, echo_session, send_then_close
 
