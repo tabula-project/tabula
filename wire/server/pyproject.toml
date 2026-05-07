@@ -1,0 +1,36 @@
+[project]
+name = "tabula-wire-server"
+version = "0.1.0"
+description = "Tabula wire server: Noise + protobuf chat server with claude CLI subprocess driver."
+readme = "README.md"
+requires-python = ">=3.12"
+license = { text = "Apache-2.0" }
+authors = [
+  { name = "Tabula stewards" },
+]
+classifiers = [
+  "License :: OSI Approved :: Apache Software License",
+  "Programming Language :: Python :: 3.12",
+]
+dependencies = []
+
+[project.optional-dependencies]
+test = [
+  "pytest>=8.0",
+  "pytest-asyncio>=0.23.0",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["claude_driver.py"]
+include = ["claude_driver.py"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+# claude_driver.py is at the package root; put it on sys.path so tests can
+# `from claude_driver import ClaudeProcess`.
+pythonpath = ["."]
