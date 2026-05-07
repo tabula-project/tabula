@@ -1,0 +1,62 @@
+# Tabula classifier wake-signal HTTP server.
+#
+# Listens on TABULA_WAKE_HOST:TABULA_WAKE_PORT (default 127.0.0.1:8088) and
+# accepts POST /wake from other classifier-resident processes (the Noise
+# terminator from Epic #13). Translates that into a scoped GCE
+# instances.start call against the configured GPU VM.
+#
+# Trust posture:
+#   * Bound to the classifier's internal NIC only — never a public address.
+#   * The firewall module (#24) provides defense-in-depth: an internal-only
+#     allow rule for this port, no external ingress.
+#   * Runs as the unprivileged ``tabula-wake`` user. The classifier service
+#     account is attached to the VM, not the user — auth flows via the GCE
+#     metadata server, never via key files on disk.
+#
+# Drop this file at /etc/systemd/system/tabula-wake.service and enable with
+# ``systemctl enable --now tabula-wake.service``.
+
+[Unit]
+Description=Tabula classifier wake-signal HTTP server
+After=network-online.target
+Wants=network-online.target
+# The wake server depends on /etc/tabula/wake.json (written by Terraform via
+# cloud-init). If the file isn't there, the server can still boot — config
+# is loaded lazily on the first request from the metadata server.
+
+[Service]
+Type=simple
+User=tabula-wake
+Group=tabula-wake
+Environment=TABULA_WAKE_HOST=127.0.0.1
+Environment=TABULA_WAKE_PORT=8088
+Environment=TABULA_WAKE_TIMEOUT_S=90
+ExecStart=/usr/bin/python3 -m tabula_wake.server
+Restart=on-failure
+RestartSec=3
+
+# Hardening — the wake server reads instance metadata, makes outbound HTTPS
+# to compute.googleapis.com, and serves a tiny HTTP API. Nothing else.
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/log/tabula
+PrivateTmp=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+RestrictNamespaces=true
+LockPersonality=true
+MemoryDenyWriteExecute=true
+
+# Logging goes to journald and is picked up by the Cloud Logging agent. The
+# wake server emits one structured info-level record per /wake call with
+# fields: requested_at, started_at, ready_at, duration_ms, outcome,
+# instance_name. That schema is the contract with audit logging (#36).
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=tabula-wake
+
+[Install]
+WantedBy=multi-user.target
