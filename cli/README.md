@@ -8,7 +8,7 @@ pinning store.
 * `tabula enclave up <name>` — implemented (issue #26).
 * `tabula enclave down <name>` — implemented (issue #28). The state.json schema (`version: 1`) is shared; see [`state.py`](src/tabula_cli/state.py).
 * `tabula enclave ssh <name> {classifier|gpu|gitea}` — implemented (issue #33).
-* `tabula enclave status <name>` — pending (issue #30).
+* `tabula enclave status <name>` — implemented (issue #30).
 * `tabula servers add/list/remove` — implemented (issue #32). Manages
   `~/.config/tabula/known_servers`. Persistence is delegated to
   `tabula_wire.client.pinning`.
@@ -97,6 +97,94 @@ This skips terraform and queries `gcloud compute instances list --filter=labels.
 * `tabula enclave down --all` — bulk teardown of every enclave under `~/.tabula/enclaves/`. Useful for demo cleanup; **not implemented** in this version.
 * SDK-based (rather than `gcloud`-shell-out) verification path. Optional dependency `google-cloud-compute` is declared but not yet wired in.
 * Stretch: also verify disks, addresses, firewall rules, and Cloud NAT. Today only GCE instances are verified — that is the floor in the issue acceptance.
+
+## `tabula enclave status`
+
+Read-only health diagnostic for an existing enclave. Reports per-VM state,
+the GPU's "cold for N seconds", and the classifier's Noise-port reachability.
+Never starts, stops, or modifies any cloud resource.
+
+```text
+tabula enclave status <name> [--json]
+```
+
+### What it does
+
+1. Reads `~/.tabula/enclaves/<name>/state.json`, validates `version == 1`.
+2. Probes each role VM (`classifier`, `gpu`, `gitea`) **concurrently** via
+   `gcloud compute instances describe --format=json`. Authentication uses
+   GCP Application Default Credentials transparently through `gcloud`.
+3. TCP-connects to the classifier's Noise port (default 7777, override via
+   `state.outputs.noise_port`) with a 2-second timeout.
+4. Computes `cold_seconds` for a STOPPED GPU from its `lastStopTimestamp`.
+5. Classifies health (a STOPPED GPU is **healthy** -- cold-by-default per
+   Epic #12; a TERMINATED GPU is **unhealthy** -- preemption or crash).
+6. Emits a human-readable summary, or a stable JSON document with `--json`.
+
+### Flags
+
+| Flag      | Effect                                                                      |
+|-----------|-----------------------------------------------------------------------------|
+| `--json`  | Emit a machine-readable JSON status document on stdout (see schema below). |
+
+### Exit codes
+
+| Code | Meaning                                                                  |
+|------|--------------------------------------------------------------------------|
+| `0`  | All expected VMs present and in expected state. `healthy: true`.         |
+| `1`  | At least one VM is missing or unexpectedly `TERMINATED`. `healthy: false`. |
+| `2`  | `state.json` not found, unreadable, or schema-incompatible.              |
+| `3`  | GCP API error talking to `gcloud` (auth, quota, network).                |
+
+### `--json` schema
+
+```json
+{
+  "name": "demo",
+  "project": "tabula-demo-123",
+  "region": "us-central1",
+  "created_at": "2026-05-07T12:34:56Z",
+  "vms": [
+    {
+      "role": "classifier",
+      "name": "demo-classifier",
+      "state": "RUNNING",
+      "zone": "us-central1-a",
+      "internal_ip": "10.0.0.2",
+      "external_ip": "34.x.x.x",
+      "last_start": "2026-05-07T12:35:10Z",
+      "last_stop": null
+    },
+    {
+      "role": "gpu",
+      "name": "demo-gpu",
+      "state": "STOPPED",
+      "zone": "us-central1-a",
+      "internal_ip": "10.0.0.3",
+      "external_ip": null,
+      "last_start": "2026-05-07T13:01:02Z",
+      "last_stop": "2026-05-07T13:14:30Z",
+      "cold_seconds": 720
+    }
+  ],
+  "reachability": {
+    "noise_port": {"host": "34.x.x.x", "port": 7777, "reachable": true, "latency_ms": 41},
+    "gitea": {"method": "iap", "reachable": false, "note": "internal only; no IAP probe wired"}
+  },
+  "healthy": true,
+  "issues": []
+}
+```
+
+`cold_seconds` is present only for a STOPPED GPU. `issues` is a list of
+human-readable strings; `healthy` is `false` iff `issues` is non-empty.
+
+### Read-only guarantee
+
+The implementation calls only `gcloud compute instances describe` -- never
+`start`, `stop`, `delete`, `reset`, or any `set-*`/`add-*`/`remove-*` verb.
+This is enforced by a unit test that captures the argv of the real shell-out
+path and asserts the verb whitelist.
 
 ## state.json schema (`version: 1`)
 
