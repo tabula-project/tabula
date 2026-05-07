@@ -9,8 +9,11 @@
  * These rules are starting heuristics. The feedback loop and stats will reveal
  * which rules misfire; adjust here as data accumulates.
  *
- * OSS-first philosophy: default to Kimi K2.6 (Fireworks). Escalate to commercial
- * (Anthropic Opus) only when a specific signal demands it.
+ * Default model is Anthropic Opus 4.7 (commercial frontier) — chosen for
+ * reliability after Kimi K2.6 (Fireworks) hit persistent 429 rate limits.
+ * OSS-first philosophy is preserved via the specific routing rules below:
+ * OSS / Cerebras / local models are picked when a rule's signal fires; Opus
+ * is only the fallback when no specific rule matches.
  */
 
 import type { Rule } from "./types.js";

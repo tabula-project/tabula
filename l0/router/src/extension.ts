@@ -24,7 +24,7 @@ import type { Model, Api } from "@mariozechner/pi-ai";
 import { randomUUID } from "node:crypto";
 import { buildFeatures, summarizeFeatures } from "./features.js";
 import { isOnline, isLocalProvider } from "./network.js";
-import { pickRule, parseCanonical, MODELS, DEFAULT_LOCAL_MODEL, RULES } from "./rules.js";
+import { pickRule, parseCanonical, DEFAULT_MODEL, DEFAULT_LOCAL_MODEL, RULES } from "./rules.js";
 import { isThrottled, markThrottled, throttleRemainingMs } from "./throttle.js";
 import { recordDecision, applyFeedback, lastDecision, getDecision, statsSummary, dbPath } from "./store.js";
 import { loadConfig, saveConfig, configPath } from "./config-io.js";
@@ -400,7 +400,7 @@ export default function piRouterExtension(pi: ExtensionAPI) {
 // ============================== rendering helpers ============================
 
 function isDefaultModel(canonical: string): boolean {
-	return canonical === MODELS.KIMI_K2_6;
+	return canonical === DEFAULT_MODEL;
 }
 
 function shouldShowInline(decision: RoutingDecision, verbosity: VerbosityLevel): boolean {
