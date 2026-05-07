@@ -14,10 +14,18 @@ both client and server for the Noise XX handshake (see issue #31):
   on-disk secret-key format. The Noise XX wrapper (#18) and the dialer (#27)
   consume this loader.
 
+The second deliverable (this PR, issue #36) is the **typed exception hierarchy**:
+
+- `tabula_wire.errors` — `WireError` family (`HandshakeError`, `SessionError`,
+  `SubprocessError`) plus cross-cutting `AtCapacity` / `InternalError`, and
+  `exception_to_error_code()` mapping to `ErrorFrame.Code`.
+- `tabula_wire.proto.v1` — stub carrying `ErrorFrame.Code` enum values; replaced
+  by generated protobuf bindings when #45/#16 lands.
+
 Future scope (separate sub-issues, not landed here):
 
 - `wire/crypto/noise_xx.py` — Noise XX wrapper around the chosen library (#18).
-- `wire/transport/` — TCP transport + length-prefixed framing.
+- `wire/transport/` — TCP transport + length-prefixed framing (#55).
 - `cli/chat.py` — `tabula chat connect` subcommand (#29).
 - Pinning store (`tabula pin add/list/remove`, #32).
 
@@ -74,3 +82,11 @@ The default config directory is created with mode `0o700` if missing.
   this for high-assurance settings.
 - The keygen CLI is intended for operators provisioning a host once. It is not
   a hot-path tool.
+
+## Testing
+
+```
+cd wire
+pip install -e .[test]
+pytest
+```
