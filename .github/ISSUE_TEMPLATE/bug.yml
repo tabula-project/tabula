@@ -1,0 +1,49 @@
+name: Bug report
+description: Something is broken
+title: "Bug: "
+labels: ["bug"]
+body:
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Reproduction steps
+      description: Minimal steps. Include exact commands and inputs.
+      render: shell
+    validations:
+      required: true
+  - type: dropdown
+    id: layer
+    attributes:
+      label: Affected layer
+      options:
+        - L0 — router / sovereign compute
+        - L1 — markdown corpus
+        - L2 — operational / ETL
+        - L3 — graph / Graphiti
+        - L4 — consumer application
+        - Schema / governance / audit
+        - Other
+    validations:
+      required: true
+  - type: input
+    id: file
+    attributes:
+      label: Affected file or path
+      description: e.g. `l0/router/src/router.ts`
+  - type: textarea
+    id: env
+    attributes:
+      label: Environment
+      description: OS, Python version, model, anything relevant

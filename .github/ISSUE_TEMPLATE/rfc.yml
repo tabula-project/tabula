@@ -1,0 +1,64 @@
+name: RFC
+description: Substantive proposal — new layer behavior, schema vocabulary, or governance change
+title: "RFC: "
+labels: ["rfc"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use this for substantive changes per [CONTRIBUTING.md](../blob/main/CONTRIBUTING.md).
+        For small fixes or self-evident additions, just open a PR.
+  - type: textarea
+    id: summary
+    attributes:
+      label: Summary
+      description: One or two sentences. What is this RFC about?
+    validations:
+      required: true
+  - type: textarea
+    id: motivation
+    attributes:
+      label: Motivation
+      description: What problem does this solve? Why now?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed change
+      description: The actual RFC body. Be specific. Include schema / API / config diffs if relevant.
+    validations:
+      required: true
+  - type: checkboxes
+    id: layers
+    attributes:
+      label: Affected layers
+      description: Which layers does this touch?
+      options:
+        - label: L0 (router / sovereign compute)
+        - label: L1 (markdown corpus / authoritative records)
+        - label: L2 (operational / transient)
+        - label: L3 (graph / Graphiti)
+        - label: L4 (consumer applications)
+        - label: Cross-cutting (governance, schema, audit)
+  - type: checkboxes
+    id: consumers
+    attributes:
+      label: Affected consumers
+      options:
+        - label: TWIN-personal
+        - label: Luce
+        - label: Bower
+        - label: Other / not yet a consumer
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance criteria
+      description: How will we know this RFC is implemented?
+    validations:
+      required: true
+  - type: textarea
+    id: open-questions
+    attributes:
+      label: Open questions
+      description: What still needs to be decided?

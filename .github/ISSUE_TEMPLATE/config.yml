@@ -1,5 +1,5 @@
 blank_issues_enabled: false
 contact_links:
-  - name: GitHub Discussions
-    url: https://github.com/rjwalters/loom/discussions
-    about: For questions, discussions, and feedback - Issues are for development tasks only
+  - name: General questions or open-ended ideas
+    url: https://github.com/tabula-project/tabula/discussions
+    about: Use Discussions for questions, exploratory ideas, and design conversations. Issues are for concrete proposals, schema additions, and bugs — pick one of the templates above.

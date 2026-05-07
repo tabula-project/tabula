@@ -1,0 +1,61 @@
+name: Schema proposal
+description: Propose a new content type or change an existing one
+title: "Schema: "
+labels: ["schema"]
+body:
+  - type: input
+    id: type-name
+    attributes:
+      label: Type name
+      description: e.g. `decision`, `observation`, `production`
+      placeholder: type-name
+    validations:
+      required: true
+  - type: input
+    id: entity-id
+    attributes:
+      label: Canonical entity ID convention
+      description: Pattern for the `id` field. e.g. `decision/<ulid>`, `person/<slug>`
+    validations:
+      required: true
+  - type: dropdown
+    id: origin
+    attributes:
+      label: Origin consumer
+      description: Which consumer is asking for this type?
+      options:
+        - TWIN-personal
+        - Luce
+        - Bower
+        - Multiple — already convergent
+        - None — speculative
+    validations:
+      required: true
+  - type: textarea
+    id: required
+    attributes:
+      label: Required fields
+      description: Beyond the universal frontmatter base
+    validations:
+      required: true
+  - type: textarea
+    id: optional
+    attributes:
+      label: Optional fields
+  - type: textarea
+    id: core-vs-extension
+    attributes:
+      label: Why this belongs in core (vs. an extension namespace)
+      description: |
+        Core types should be general enough for any sovereign-substrate consumer.
+        Consumer-internal vocabulary belongs in `schema/<consumer>/v1/extensions/`.
+    validations:
+      required: true
+  - type: textarea
+    id: example
+    attributes:
+      label: Example record
+      description: A realistic instance, including frontmatter and a short body
+      render: yaml
+    validations:
+      required: true
