@@ -71,7 +71,7 @@ Markdown with YAML frontmatter, stored in git. Tabula owns the *frontmatter spec
 
 > **Detailed spec:** [`l3/README.md`](l3/README.md). **Architecture context:** [`docs/five-layer-architecture.md`](docs/five-layer-architecture.md)
 
-Graphiti over PostgreSQL + Apache AGE + pgvector. Hybrid search (semantic + Cypher + full-text), entity reconciliation, MCP tool-call interface for agents.
+**Sovereign-memory facade** (Cognee for facts + Kuzu for graph + Graphiti for temporal) over PostgreSQL + pgvector. Hybrid search (semantic + graph + full-text), entity reconciliation, MCP tool-call interface for agents. (Earlier drafts referenced Apache AGE; superseded — Graphiti dropped AGE support, the facade pattern is the current canonical answer.)
 
 The graph is *derived*, not authoritative — rebuildable from L1 + L2 on any future infrastructure. Re-indexing is a chore; never a load-bearing data dependency.
 
@@ -98,15 +98,28 @@ Bower's concierge (cheap, always-warm) decides whether to wake the heavy agent; 
 
 TWIN and Luce use the same API with different defaults. TWIN's recall queries run cheap-warm or against the small local rig; Luce's coordinator runs in batch windows. **The sleep API is universal; the policy is per-consumer.**
 
-## Privacy classes
+## Privacy classes (data dimension)
 
-| Class | Allowed backends | Audit | Default for |
-|---|---|---|---|
-| `family_or_self` | Owned infra only | Local-only logs | TWIN-personal default; Bower family-tier |
-| `project` | Owned + cloud-OSS (Fireworks, Cerebras, Lambda) + private Claude on GCP | Langfuse + local | Luce coordinator; Bower agent calls; TWIN project-tier |
-| `public` | Anything including frontier-closed | Langfuse | Public-blog content; benchmarking |
+Tabula adopts a three-class **data-classification** framework as the substrate's default. This is the DATA dimension — what's the data, who can see it, what's at stake. It is **orthogonal** to any infrastructure-tier framework an implementation may also adopt for backend selection.
 
-The class is a header on every call. The router refuses to lower the class. Misclassification surfaces as an audit anomaly. The privacy-class invariant is the substrate's strongest claim and its load-bearing one — if it fails, the whole proposition fails.
+| Class | What it classifies | Default for |
+|---|---|---|
+| `family_or_self` | Personal / family data; data the user holds private custody over | TWIN-personal default; Bower family-tier |
+| `project` | Organizational / commercial / professional-secrecy data | Luce coordinator; Bower agent calls; TWIN project-tier |
+| `public` | Already-public or no-sensitivity data | Public-blog content; benchmarking |
+
+The class is a header on every call. Misclassification surfaces as an audit anomaly. The privacy-class invariant is the substrate's strongest claim and its load-bearing one — if it fails, the whole proposition fails.
+
+**The two dimensions.** A Tabula-compliant implementation needs both:
+
+| Dimension | What it classifies | Whose spec |
+|---|---|---|
+| **Data classification** | Sensitivity, audience, custody | Tabula (this spec) — the three classes above |
+| **Infrastructure tier** | Which backend is approved (model + provider + contract class) | Implementation choice — typically the implementation's tier-policy spec |
+
+These are orthogonal. The implementation's per-customer `policy_event` chain (or equivalent) maps data classes to approved infrastructure tiers. The same `family_or_self` data can route to "sovereign on-prem only" for one customer and "sovereign cloud with ZDR" for another. Customers customize via their policy chain; Tabula stays opinion-free.
+
+(One reference implementation that adopts this two-dimensional model is V's sovereign-build: data classes per Tabula's framework; a four-tier infrastructure framework — Sovereign On-Prem / Sovereign Cloud / Controlled / Open — for the infrastructure dimension; per-customer binding policies that compose the two.)
 
 ## Schema vocabulary (canonical content types)
 
