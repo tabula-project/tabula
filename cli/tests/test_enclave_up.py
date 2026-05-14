@@ -86,8 +86,21 @@ class TestArgParsing:
         result = runner.invoke(root_app, ["enclave", "up", "--help"])
         assert result.exit_code == 0
         out = result.stdout
-        for flag in ("--project", "--region", "--dry-run", "--yes", "--verbose"):
+        for flag in (
+            "--project", "--region", "--dry-run", "--yes",
+            "--verbose", "--composition",
+        ):
             assert flag in out
+
+    def test_up_rejects_invalid_composition(
+        self, runner: CliRunner, tabula_home: Path
+    ) -> None:
+        result = runner.invoke(
+            root_app,
+            ["enclave", "up", "valid-name", "--project", "p", "--composition", "bogus"],
+        )
+        assert result.exit_code == enclave_mod.EXIT_VALIDATION
+        assert "composition must be one of" in (result.stderr or result.stdout)
 
     def test_up_requires_name(self, runner: CliRunner) -> None:
         result = runner.invoke(root_app, ["enclave", "up"])
@@ -114,6 +127,87 @@ class TestArgParsing:
         result = runner.invoke(root_app, ["enclave", "up", "demo", "--dry-run"])
         assert result.exit_code == enclave_mod.EXIT_VALIDATION
         assert "no GCP project" in (result.stderr or "")
+
+
+# --------------------------------------------------------------------------- #
+# Composition selection                                                       #
+# --------------------------------------------------------------------------- #
+
+class TestComposition:
+    def test_root_module_defaults_to_stub(self, monkeypatch) -> None:
+        # Unset the env override so the function uses its package-relative path.
+        monkeypatch.delenv("TABULA_TERRAFORM_ROOT", raising=False)
+        result = enclave_mod._terraform_root_module()
+        assert result.name == "enclave", f"expected 'enclave', got {result}"
+
+    def test_root_module_picks_enclave_prod_when_composition_is_prod(
+        self, monkeypatch
+    ) -> None:
+        monkeypatch.delenv("TABULA_TERRAFORM_ROOT", raising=False)
+        result = enclave_mod._terraform_root_module(composition="prod")
+        assert result.name == "enclave-prod", f"expected 'enclave-prod', got {result}"
+
+    def test_root_module_rejects_unknown_composition(self) -> None:
+        with pytest.raises(ValueError, match="composition must be one of"):
+            enclave_mod._terraform_root_module(composition="bogus")
+
+    def test_env_override_applies_regardless_of_composition(
+        self, monkeypatch, tmp_path
+    ) -> None:
+        monkeypatch.setenv("TABULA_TERRAFORM_ROOT", str(tmp_path))
+        assert enclave_mod._terraform_root_module() == tmp_path.resolve()
+        assert (
+            enclave_mod._terraform_root_module(composition="prod")
+            == tmp_path.resolve()
+        )
+
+    def test_prod_dry_run_requires_adc(
+        self,
+        runner: CliRunner,
+        tabula_home: Path,
+        monkeypatch,
+        mock_tf,
+    ) -> None:
+        # Even with --dry-run, prod composition needs ADC because the plan
+        # will hit GCP. Verify the CLI's ADC check fires before terraform.
+        monkeypatch.setattr(enclave_mod, "_adc_present", lambda: False)
+        result = runner.invoke(
+            root_app,
+            [
+                "enclave", "up", "prod-test",
+                "--project", "test-proj",
+                "--region", "us-central1",
+                "--dry-run",
+                "--composition", "prod",
+            ],
+        )
+        assert result.exit_code == enclave_mod.EXIT_AUTH
+        assert "application-default credentials" in (result.stderr or result.stdout)
+
+    def test_stub_dry_run_skips_adc_check(
+        self,
+        runner: CliRunner,
+        tabula_home: Path,
+        monkeypatch,
+        mock_tf,
+    ) -> None:
+        # The stub composition makes no GCP calls so the CLI should not
+        # block on missing ADC during a dry-run.
+        monkeypatch.setattr(enclave_mod, "_adc_present", lambda: False)
+        result = runner.invoke(
+            root_app,
+            [
+                "enclave", "up", "stub-test",
+                "--project", "test-proj",
+                "--region", "us-central1",
+                "--dry-run",
+                # default --composition stub
+            ],
+        )
+        assert result.exit_code == enclave_mod.EXIT_OK, (
+            f"expected EXIT_OK; got {result.exit_code}; "
+            f"stdout={result.stdout!r} stderr={result.stderr!r}"
+        )
 
 
 # --------------------------------------------------------------------------- #
