@@ -22,77 +22,75 @@
 # adopt this bootstrap.
 
 # ---------------------------------------------------------------------------
-# Inputs (declared here so this issue can be reviewed in isolation; once the
-# wiring is merged into the GPU module, these can move to variables.tf next
-# to the other module inputs).
-#
-# NOTE on `enclave_name`: that variable is also declared by issue #19's
-# variables.tf. Until #19 merges it does not exist in this directory, which
-# would make `terraform validate` fail. The block below is therefore guarded
-# with a comment so the merge conflict resolution is explicit: when both PRs
-# are on main, drop this declaration here and keep the one in variables.tf.
+# Bootstrap-specific inputs. `enclave_name` is declared in this module's
+# variables.tf (issue #19); these are the additional inputs the bootstrap
+# wiring needs and which don't belong on the bare GCE instance config.
 # ---------------------------------------------------------------------------
 
-variable "enclave_name" {
-  # SHIM — duplicates issue #19's declaration. See note above. The schema
-  # MUST stay identical to variables.tf in #19; if that PR's schema changes,
-  # update this shim or remove it on merge.
-  description = "Enclave name used for resource naming. Mirrors var.enclave_name from issue #19."
-  type        = string
-
-  validation {
-    condition     = can(regex("^[a-z]([-a-z0-9]*[a-z0-9])?$", var.enclave_name))
-    error_message = "enclave_name must be a valid GCP resource name fragment (lowercase letters, digits, hyphens; must start with a letter)."
-  }
-}
+# The bootstrap variables below are OPTIONAL — they default to "" so a
+# composition that doesn't yet wire the bootstrap mechanism into the GCE
+# instance metadata can still pass `terraform validate`. Validations are
+# permissive when empty (the bootstrap mechanism is opt-in; an empty value
+# means "no bootstrap wired yet").
+#
+# When main.tf is updated to merge `local.tabula_bootstrap_metadata` and
+# attach `local.tabula_bootstrap_user_data` to the instance's user-data,
+# tighten the validations here to reject the empty default.
 
 variable "vertex_project_id" {
-  description = "GCP project hosting Vertex AI. Read by bootstrap.sh; passed to claude as ANTHROPIC_VERTEX_PROJECT_ID."
+  description = "GCP project hosting Vertex AI. Read by bootstrap.sh; passed to claude as ANTHROPIC_VERTEX_PROJECT_ID. Empty means bootstrap is not wired."
   type        = string
+  default     = ""
 }
 
 variable "vertex_region" {
-  description = "Vertex AI region. Read by bootstrap.sh; passed to claude as CLOUD_ML_REGION. Must be a region where the chosen model is available and where the PSC endpoint (#23) is provisioned."
+  description = "Vertex AI region. Read by bootstrap.sh; passed to claude as CLOUD_ML_REGION. Must be a region where the chosen model is available and where the PSC endpoint (#23) is provisioned. Empty means bootstrap is not wired."
   type        = string
+  default     = ""
 }
 
 variable "gitea_url" {
-  description = "Base URL of the in-enclave Gitea (issue #21). Example: https://gitea.<enclave>.internal:3000. The VM must be able to reach this host on the enclave VPC."
+  description = "Base URL of the in-enclave Gitea (issue #21). Example: https://gitea.<enclave>.internal:3000. Empty means bootstrap is not wired."
   type        = string
+  default     = ""
 
   validation {
-    condition     = can(regex("^https?://[^/]+/?$", var.gitea_url))
-    error_message = "gitea_url must be of the form https://host[:port] with no trailing path."
+    condition     = var.gitea_url == "" || can(regex("^https?://[^/]+/?$", var.gitea_url))
+    error_message = "gitea_url must be empty or of the form https://host[:port] with no trailing path."
   }
 }
 
 variable "gitea_repo_path" {
-  description = "Owner/repo path inside Gitea, without leading slash and without .git suffix. Example: tabula/tabula."
+  description = "Owner/repo path inside Gitea, without leading slash and without .git suffix. Example: tabula/tabula. Empty means bootstrap is not wired."
   type        = string
+  default     = ""
 
   validation {
-    condition     = can(regex("^[^/]+/[^/]+$", var.gitea_repo_path))
-    error_message = "gitea_repo_path must be of the form '<owner>/<repo>'."
+    condition     = var.gitea_repo_path == "" || can(regex("^[^/]+/[^/]+$", var.gitea_repo_path))
+    error_message = "gitea_repo_path must be empty or of the form '<owner>/<repo>'."
   }
 }
 
 variable "gitea_token_secret" {
-  description = "Secret Manager secret id (just the short name, e.g. 'gitea-bootstrap-pat') holding a Gitea PAT with read access to the repo. The IAM module (#15) MUST grant the GPU SA roles/secretmanager.secretAccessor scoped to this single secret."
+  description = "Secret Manager secret id (just the short name, e.g. 'gitea-bootstrap-pat') holding a Gitea PAT with read access to the repo. The IAM module (#15) MUST grant the GPU SA roles/secretmanager.secretAccessor scoped to this single secret. Empty means bootstrap is not wired."
   type        = string
+  default     = ""
 }
 
 variable "claude_version" {
-  description = "Pinned claude CLI version. The bootstrap script verifies the installed binary reports this exact version and refuses to start the agent if it does not match."
+  description = "Pinned claude CLI version. The bootstrap script verifies the installed binary reports this exact version and refuses to start the agent if it does not match. Empty means bootstrap is not wired."
   type        = string
+  default     = ""
 }
 
 variable "git_user_email" {
-  description = "Service identity for git user.email. Convention: tabula-enclave@<enclave>.internal."
+  description = "Service identity for git user.email. Convention: tabula-enclave@<enclave>.internal. Empty means bootstrap is not wired."
   type        = string
+  default     = ""
 
   validation {
-    condition     = can(regex("^[^@]+@[^@]+$", var.git_user_email))
-    error_message = "git_user_email must look like an email address."
+    condition     = var.git_user_email == "" || can(regex("^[^@]+@[^@]+$", var.git_user_email))
+    error_message = "git_user_email must be empty or look like an email address."
   }
 }
 

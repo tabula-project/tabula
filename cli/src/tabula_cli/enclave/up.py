@@ -41,22 +41,36 @@ logger = logging.getLogger("tabula_cli.enclave.up")
 # --------------------------------------------------------------------------- #
 
 
-def _terraform_root_module() -> Path:
-    """Return the path to the ``terraform/enclave/`` root module.
+#: Valid values for the ``--composition`` flag. ``stub`` is the offline-plan
+#: composition under ``terraform/enclave/`` (synthetic outputs, no GCP calls).
+#: ``prod`` is the real-GCP composition under ``terraform/enclave-prod/``
+#: which requires ADC. See issue #107 for the design rationale.
+VALID_COMPOSITIONS = ("stub", "prod")
 
-    The CLI ships alongside the substrate repo; the root module lives at the
-    repo root in ``terraform/enclave/``. We resolve relative to this file so
-    ``pip install -e cli`` from the repo root still finds it. The
-    ``TABULA_TERRAFORM_ROOT`` env var overrides for tests and out-of-tree
-    installs.
+
+def _terraform_root_module(composition: str = "stub") -> Path:
+    """Return the path to the Terraform root module for ``composition``.
+
+    The CLI ships alongside the substrate repo; root modules live at the
+    repo root in ``terraform/enclave/`` (stub) and ``terraform/enclave-prod/``
+    (prod). We resolve relative to this file so ``pip install -e cli`` from
+    the repo root still finds them. The ``TABULA_TERRAFORM_ROOT`` env var
+    overrides for tests and out-of-tree installs (overrides apply to both
+    compositions; tests pick the desired dir layout).
     """
+    if composition not in VALID_COMPOSITIONS:
+        raise ValueError(
+            f"composition must be one of {VALID_COMPOSITIONS}, got {composition!r}"
+        )
+
     override = os.environ.get("TABULA_TERRAFORM_ROOT")
     if override:
         return Path(override).expanduser().resolve()
 
-    # cli/src/tabula_cli/enclave/up.py -> ../../../../terraform/enclave
+    # cli/src/tabula_cli/enclave/up.py -> ../../../../terraform/<composition-dir>
     here = Path(__file__).resolve()
-    return here.parents[4] / "terraform" / "enclave"
+    subdir = "enclave" if composition == "stub" else "enclave-prod"
+    return here.parents[4] / "terraform" / subdir
 
 
 def _detect_default_project() -> Optional[str]:
@@ -114,7 +128,13 @@ def _write_tfvars(target_dir: Path, *, project_id: str, region: str, name: str) 
     return tfvars
 
 
-def _materialize_workdir(name: str, *, project_id: str, region: str) -> Path:
+def _materialize_workdir(
+    name: str,
+    *,
+    project_id: str,
+    region: str,
+    composition: str = "stub",
+) -> Path:
     """Prepare the per-enclave working directory and return its terraform dir.
 
     Layout produced::
@@ -129,8 +149,11 @@ def _materialize_workdir(name: str, *, project_id: str, region: str) -> Path:
 
     We copy rather than symlink the root module so the per-enclave dir is
     self-contained and survives a CLI upgrade or repo move.
+
+    ``composition`` picks between the stub (offline-plan, synthetic outputs)
+    and prod (real GCP, requires ADC) root modules.
     """
-    src = _terraform_root_module()
+    src = _terraform_root_module(composition)
     if not src.is_dir():
         raise FileNotFoundError(
             f"terraform root module not found at {src}; "
@@ -227,6 +250,16 @@ def up(
         "-v",
         help="Stream terraform stdout/stderr live instead of summarizing.",
     ),
+    composition: str = typer.Option(
+        "stub",
+        "--composition",
+        help=(
+            "Terraform composition to run. 'stub' (default) uses synthetic "
+            "modules and works offline; 'prod' wires the real GCP modules and "
+            "requires `gcloud auth application-default login` first. See "
+            "terraform/enclave-prod/README.md for the trade-offs."
+        ),
+    ),
 ) -> None:
     """Provision (or re-apply) the enclave named ``name``.
 
@@ -245,6 +278,15 @@ def up(
         typer.echo(f"error: {e}", err=True)
         raise typer.Exit(code=EXIT_VALIDATION) from None
 
+    # 1b) Validate composition.
+    if composition not in VALID_COMPOSITIONS:
+        typer.echo(
+            f"error: --composition must be one of {VALID_COMPOSITIONS}, "
+            f"got {composition!r}",
+            err=True,
+        )
+        raise typer.Exit(code=EXIT_VALIDATION)
+
     # 2) Resolve project.
     project_id = project or _detect_default_project()
     if not project_id:
@@ -257,7 +299,10 @@ def up(
 
     # 3) ADC check before we even touch terraform -- fail fast with a clean
     #    message rather than letting `terraform apply` blow up opaquely.
-    if not _adc_present() and not dry_run:
+    #    The stub composition makes no GCP calls so the check is skipped for
+    #    it; the prod composition requires ADC for both plan AND apply.
+    needs_adc = composition == "prod" or not dry_run
+    if needs_adc and not _adc_present():
         typer.echo(
             "error: GCP application-default credentials not found. Run:\n"
             "       gcloud auth application-default login",
@@ -289,7 +334,7 @@ def up(
     # 5) Materialize the working directory and tfvars.
     try:
         tf_dir = _materialize_workdir(
-            name, project_id=project_id, region=region
+            name, project_id=project_id, region=region, composition=composition
         )
     except FileNotFoundError as e:
         typer.echo(f"error: {e}", err=True)
