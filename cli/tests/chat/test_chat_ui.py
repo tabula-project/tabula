@@ -51,26 +51,41 @@ from tabula_wire.proto.v1 import (
 class FakeChannel:
     """Scripted ``ChatChannel`` used by the chat-UI tests.
 
+    Mirrors the real ``tabula_wire.client.dialer.ChatChannel`` envelope
+    contract: ``send(frame: ClientFrame)`` and ``recv() -> ServerFrame``.
+
     ``server_script`` is an iterable of either:
-      - a ``ServerFrame`` to emit on the next ``recv()``
+      - a bare payload (``Welcome``, ``AssistantToken``, ``AssistantTurnEnd``,
+        ``ErrorFrame``) — wrapped into a ``ServerFrame`` envelope before
+        being returned from ``recv()`` (matches the dialer)
+      - a fully formed ``ServerFrame`` — returned as-is
       - an ``Exception`` instance to raise from the next ``recv()``
       - the string ``"hang"`` to block until close
-    ``recv()`` walks the script in order. ``send()`` records the frame on
-    ``self.sent``.
+
+    ``send()`` accepts ``ClientFrame`` envelopes (matching the real dialer)
+    and stores the *unwrapped* inner payload on ``self.sent`` so test
+    assertions like ``isinstance(sent[0], Hello)`` continue to work.
     """
 
     def __init__(self, server_script: Iterable[Any]) -> None:
         self._script = list(server_script)
-        self.sent: list[ClientFrame] = []
+        self.sent: list[Any] = []  # unwrapped payloads (Hello, UserMessage, EndSession)
         self._closed = asyncio.Event()
         self._idx = 0
 
-    async def send(self, frame: ClientFrame) -> None:
-        self.sent.append(frame)
+    async def send(self, frame: Any) -> None:
+        # Unwrap ClientFrame envelopes so test assertions can use
+        # ``isinstance(sent[0], Hello)`` without caring about the wire wrapper.
+        inner = frame
+        if isinstance(frame, ClientFrame):
+            which = frame.WhichOneof("payload")
+            if which is not None:
+                inner = getattr(frame, which)
+        self.sent.append(inner)
         # Mirror real-server behavior: a graceful server closes the stream
         # after acking ``EndSession``. Without this, a pending ``recv()``
         # would hang forever in tests that exercise the EOF path.
-        if isinstance(frame, EndSession):
+        if isinstance(inner, EndSession):
             self._closed.set()
 
     async def recv(self) -> ServerFrame:
@@ -92,6 +107,18 @@ class FakeChannel:
         if item == "hang":
             await self._closed.wait()
             raise ServerDisconnected("hung")
+        # Wrap bare payloads in a ServerFrame envelope so the chat client sees
+        # the same shape it would from the real dialer.
+        if isinstance(item, ServerFrame):
+            return item
+        if isinstance(item, Welcome):
+            return ServerFrame(welcome=item)
+        if isinstance(item, AssistantToken):
+            return ServerFrame(token=item)
+        if isinstance(item, AssistantTurnEnd):
+            return ServerFrame(turn_end=item)
+        if isinstance(item, ErrorFrame):
+            return ServerFrame(error=item)
         return item  # type: ignore[return-value]
 
     async def close(self) -> None:
