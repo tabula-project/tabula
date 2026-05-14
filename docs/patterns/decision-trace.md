@@ -120,6 +120,17 @@ All three use the same `decision.yaml` schema. Luce-flavored extensions (e.g., `
 - **Live agent reasoning.** A decision is the *recorded* outcome of reasoning; the reasoning itself happens in conversation, code review, or model context. The trace summarizes; it isn't a chain-of-thought log.
 - **Disagreement resolution.** The pattern records the chosen path. If stewards disagree, that's an L4 governance question; the trace can document the disagreement (e.g., "rjwalters dissented; preferred option B for reasons X") but doesn't itself adjudicate.
 
+## Composes with (v1 candidate patterns)
+
+The following v1 candidate patterns emit records that conform to this schema:
+
+| Pattern | How it composes |
+|---|---|
+| [**Tier-policy enforcement**](tier-policy-enforcement.md) | `policy_event.tier_binding` records (per-customer data-class × infrastructure-tier bindings) use the `type: decision` schema with `options_considered` populated by the reviewed binding alternatives |
+| [**Sovereign-agent-runtime**](sovereign-agent-runtime.md) | Step 5 of the canonical agent step emits `agent_decision` events conforming to this schema; `decision_type: derived` vs `committed` distinguishes routine vs commitment-grade steps |
+| [**MoA orchestrator**](moa-orchestrator.md) | The synthesizer's final output is a `decision` record with `decision_type: committed`; aggregator votes are populated into `options_considered`; rationale captures the weighted-vote reasoning |
+| [**Audit-overlay composition**](audit-overlay-composition.md) | `agent_decision` events emitted by the audit overlay's L4 hook use this schema; the decision-trace pattern is the cross-protocol-portable shape for committed-decision events |
+
 ## Cross-references
 
 - Schema: [`schema/v1/types/decision.yaml`](../../schema/v1/types/decision.yaml)

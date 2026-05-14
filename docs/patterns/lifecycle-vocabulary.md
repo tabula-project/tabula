@@ -109,6 +109,17 @@ The phrase from Luce's OM.md: "production wraps. Knowledge persists in the field
 - **It does not constrain what stages each layer must implement.** A consumer with a tiny L2 may have a trivial `heart_beat()`. A long-running L1 may rarely fire `clean_up()`. The vocabulary describes shape; consumers fill it in proportionally.
 - **It does not replace the schema.** Lifecycle stages are *operations*; the substrate's typed records (decision/observation/conversation/etc.) are *content*. Both vocabularies coexist.
 
+## Composes with (v1 candidate patterns)
+
+The following v1 candidate patterns adopt this lifecycle vocabulary for their operations:
+
+| Pattern | How it composes |
+|---|---|
+| [**Sovereign-agent-runtime**](sovereign-agent-runtime.md) | Agents use the full five-stage lifecycle: `create()` (identity + persona load); `heart_beat()` (one step pulse, invoking the canonical 7-stage step sequence); `reset()` (memory snapshot to L1); `clean_up()` (dehydrate via Tabula sleep API); `on_destruct()` (agent retirement with final audit event) |
+| [**Tier-policy enforcement**](tier-policy-enforcement.md) | `reset()` rotates per-customer policy snapshots quarterly; `clean_up()` enforces tier migration when an approved backend sunsets (extracts policy-event chain dependencies before the backend disappears) |
+| [**MoA orchestrator**](moa-orchestrator.md) | The coordinator agent uses `heart_beat()` for polling proposer responses; `clean_up()` releases coalesced warm instances when the ensemble run completes |
+| [**Audit-overlay composition**](audit-overlay-composition.md) | `system_change_event` records (a recommended audit event type) capture `create()`/`clean_up()`/`on_destruct()` lifecycle transitions for substrate operations with regulatory impact |
+
 ## Cross-references
 
 - Origin in Luce: `~/gt/luce/crew/vivake/docs/OM.md` (the dharma framing) and `docs/specs/2026-04-01-luce-context-and-learning-architecture.md`
