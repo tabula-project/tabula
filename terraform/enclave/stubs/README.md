@@ -1,9 +1,9 @@
 # `terraform/enclave/stubs/` — placeholder sibling modules
 
-These stubs let the root module `terraform plan` / `apply` succeed with no
-GCP credentials so #26's `tabula enclave up <name> --dry-run` integration
-test passes before the real sibling-module issues (#14, #15, #17, #19, #21,
-#23, #24) merge.
+These stubs let the root module `tofu plan` / `apply` (or `terraform`
+equivalents) succeed with no GCP credentials so #26's
+`tabula enclave up <name> --dry-run` integration test passes before the
+real sibling-module issues (#14, #15, #17, #19, #21, #23, #24) merge.
 
 Each stub:
 

@@ -118,16 +118,19 @@ operational friction of a documented exception is the point.
 
 ## Validation
 
+The repo uses [OpenTofu](https://opentofu.org/) (`tofu`); `terraform` works as
+a fallback.
+
 ```sh
 cd terraform/modules/network/examples/basic
 cp terraform.tfvars.example terraform.tfvars   # edit project_id
-terraform init
-terraform validate
-terraform plan
+tofu init
+tofu validate
+tofu plan
 ```
 
-`terraform validate` runs without GCP credentials. `terraform plan` requires
-ADC pointing at a real project but does not mutate anything.
+`tofu validate` runs without GCP credentials. `tofu plan` requires ADC
+pointing at a real project but does not mutate anything.
 
 ## Non-goals (handled elsewhere)
 

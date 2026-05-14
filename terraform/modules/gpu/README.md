@@ -81,8 +81,8 @@ The GPU VM dominates enclave cost when running, so the module is opinionated
 about keeping it stopped:
 
 - **At create time** the instance is created with `desired_status = "TERMINATED"`.
-  `terraform apply` provisions the disk and the resource policy but does not
-  start the VM, so no GPU-hours accrue.
+  `tofu apply` (or `terraform apply`) provisions the disk and the resource
+  policy but does not start the VM, so no GPU-hours accrue.
 - **While stopped** you pay for the boot disk only (~$10–15/mo for 100 GB
   pd-balanced, region-dependent). No vCPU, no GPU.
 - **While running** the classifier issues a wake (`compute.instances.start`).
@@ -120,7 +120,7 @@ Constraints to be aware of:
   machine types only. They are not valid on N2/E2/G2.
 - L4 (`nvidia-l4`) requires the **g2-*** machine family; it is not valid on n1.
 - A100, H100, etc. require A2/A3 machine families and have stricter quota.
-- Not every zone in a region offers every accelerator. If `terraform apply`
+- Not every zone in a region offers every accelerator. If `tofu apply`
   fails with `ZONE_RESOURCE_POOL_EXHAUSTED` or `Invalid value for field
   'resource.guestAccelerators[0].acceleratorType'`, pick a different zone.
 
@@ -128,7 +128,7 @@ Constraints to be aware of:
 
 **Fresh GCP projects start with `0` regional GPU quota.** Plan and apply will
 both succeed against an empty stub (the resource is declared, not realized
-until the API call), but `terraform apply` against a real project without
+until the API call), but `tofu apply` against a real project without
 quota will fail at the `google_compute_instance` create step with an error
 similar to:
 
@@ -150,11 +150,14 @@ SKU; T4 quota does not cover L4 and vice versa.
 
 ## Validation
 
+The repo uses [OpenTofu](https://opentofu.org/) (`tofu`); `terraform` works as
+a fallback.
+
 ```sh
 cd terraform/examples/gpu-only
-terraform init
-terraform validate
-terraform plan
+tofu init
+tofu validate
+tofu plan
 ```
 
 `examples/gpu-only` is a deliberately minimal stub that plumbs literal
@@ -166,11 +169,11 @@ validation does not depend on the network or IAM modules being implemented.
 In a sandbox project with T4 quota and a real network/IAM module:
 
 ```sh
-terraform apply               # instance lands stopped, disk + policy realized
-gcloud compute instances start "$(terraform output -raw instance_name)" \
-  --zone "$(terraform output -raw zone)"
+tofu apply                    # instance lands stopped, disk + policy realized
+gcloud compute instances start "$(tofu output -raw instance_name)" \
+  --zone "$(tofu output -raw zone)"
 # wait < 30 min — the scheduled stop policy will halt the instance
-gcloud compute instances describe "$(terraform output -raw instance_name)" \
-  --zone "$(terraform output -raw zone)" --format='value(status)'
+gcloud compute instances describe "$(tofu output -raw instance_name)" \
+  --zone "$(tofu output -raw zone)" --format='value(status)'
 # expect: TERMINATED
 ```

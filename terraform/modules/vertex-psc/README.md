@@ -59,7 +59,7 @@ Vertex AI is in both bundles. We default to `all-apis` because the same endpoint
 
 ## Verifying private connectivity
 
-After `terraform apply`, SSH into the GPU VM (or any VM in the VPC with no NAT route) and confirm Vertex AI is reachable **without** a public path:
+After `tofu apply` (or `terraform apply`), SSH into the GPU VM (or any VM in the VPC with no NAT route) and confirm Vertex AI is reachable **without** a public path:
 
 ```sh
 # 1. Confirm DNS resolves to the PSC IP, not a public Google range.

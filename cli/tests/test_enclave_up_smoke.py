@@ -1,10 +1,12 @@
 """Offline integration smoke test for ``tabula enclave up --dry-run``.
 
-Runs the real terraform binary against the stub root module shipped in
+Runs the real IaC binary against the stub root module shipped in
 ``terraform/enclave/`` (with sibling modules pointing at ``./stubs/<name>``).
-No GCP credentials, no network, no providers — just `terraform init` + `plan`.
+No GCP credentials, no network, no providers — just `init` + `plan`.
 
-Skipped automatically when ``terraform`` is not on ``PATH``.
+The CLI uses ``tabula_cli._terraform.find_binary()`` to pick the binary
+(``tofu`` preferred over ``terraform``); this test is skipped automatically
+when neither is on ``PATH``.
 """
 
 from __future__ import annotations
@@ -24,8 +26,8 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 TF_ROOT = REPO_ROOT / "terraform" / "enclave"
 
 pytestmark = pytest.mark.skipif(
-    shutil.which("terraform") is None,
-    reason="terraform binary not on PATH",
+    shutil.which("tofu") is None and shutil.which("terraform") is None,
+    reason="neither 'tofu' nor 'terraform' binary on PATH",
 )
 
 

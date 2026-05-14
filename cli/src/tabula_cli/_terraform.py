@@ -1,12 +1,20 @@
-"""Thin wrapper around the ``terraform`` binary.
+"""Thin wrapper around the ``tofu`` / ``terraform`` binary.
 
 Decision (from #26 implementation notes): shell out via :mod:`subprocess`
 rather than depend on ``python-terraform``. We get the real error messages,
 the real exit codes, and we don't have to vendor a wrapper that lags
-upstream Terraform versions.
+upstream releases.
+
+OpenTofu migration (#96): prefer the ``tofu`` binary (OpenTofu, MPL 2.0)
+and fall back to ``terraform`` (BUSL since v1.6) if ``tofu`` isn't on
+``PATH``. Both expose the same CLI surface for ``init``/``plan``/
+``apply``/``output``/``destroy``/``validate``/``fmt``, and OpenTofu reads
+the same Terraform Registry providers (``hashicorp/google`` etc.) and the
+same on-disk state file format. The fallback keeps the CLI usable for
+contributors who haven't installed OpenTofu yet.
 
 This module is pure plumbing: it does no policy. The ``up`` command in
-``enclave.py`` decides what to do with non-zero exit codes.
+``enclave/up.py`` decides what to do with non-zero exit codes.
 """
 
 from __future__ import annotations
@@ -20,24 +28,38 @@ from typing import Mapping, Sequence
 
 
 class TerraformNotFoundError(RuntimeError):
-    """Raised when no ``terraform`` binary is on ``PATH``."""
+    """Raised when neither ``tofu`` nor ``terraform`` is on ``PATH``.
+
+    The historical name is preserved for API stability; the error message
+    mentions both binaries since either satisfies the dependency.
+    """
 
 
 class TerraformError(RuntimeError):
-    """Raised when a terraform invocation exits non-zero.
+    """Raised when a ``tofu``/``terraform`` invocation exits non-zero.
 
     Attributes:
-        returncode: The terraform process's exit code.
+        returncode: The process's exit code.
         stdout:     Combined captured stdout (may be empty in streaming mode).
         stderr:     Combined captured stderr (may be empty in streaming mode).
+        binary:     The binary name that was actually invoked
+                    (``"tofu"`` or ``"terraform"``); useful for error
+                    messages that want to reflect what the user actually ran.
     """
 
-    def __init__(self, returncode: int, stdout: str = "", stderr: str = "") -> None:
+    def __init__(
+        self,
+        returncode: int,
+        stdout: str = "",
+        stderr: str = "",
+        binary: str = "terraform",
+    ) -> None:
         self.returncode = returncode
         self.stdout = stdout
         self.stderr = stderr
+        self.binary = binary
         super().__init__(
-            f"terraform exited with code {returncode}"
+            f"{binary} exited with code {returncode}"
             + (f": {stderr.strip()}" if stderr.strip() else "")
         )
 
@@ -51,22 +73,52 @@ class TerraformResult:
     stderr: str
 
 
-def find_terraform() -> str:
-    """Locate the terraform binary, or raise.
+# --------------------------------------------------------------------------- #
+# Binary discovery                                                            #
+# --------------------------------------------------------------------------- #
+
+
+def find_binary() -> str:
+    """Return the IaC binary path, preferring OpenTofu over Terraform.
+
+    Resolution order:
+
+    1. ``tofu``       — OpenTofu (MPL 2.0).
+    2. ``terraform``  — HashiCorp Terraform (BUSL since v1.6); fallback for
+                        contributors who haven't installed OpenTofu yet.
 
     Returns:
-        Absolute path to the ``terraform`` executable.
+        Absolute path to the executable.
 
     Raises:
-        TerraformNotFoundError: If no binary is found on ``PATH``.
+        TerraformNotFoundError: If neither binary is found on ``PATH``.
     """
-    path = shutil.which("terraform")
-    if path is None:
-        raise TerraformNotFoundError(
-            "terraform binary not found on PATH; "
-            "install Terraform >= 1.5 (https://developer.hashicorp.com/terraform/downloads)"
-        )
-    return path
+    for name in ("tofu", "terraform"):
+        path = shutil.which(name)
+        if path is not None:
+            return path
+    raise TerraformNotFoundError(
+        "neither 'tofu' (OpenTofu) nor 'terraform' (Terraform) found on PATH; "
+        "install OpenTofu (https://opentofu.org/docs/intro/install/) "
+        "or Terraform (https://developer.hashicorp.com/terraform/downloads)"
+    )
+
+
+def find_terraform() -> str:
+    """Backwards-compatible alias for :func:`find_binary`.
+
+    Older code/tests imported ``find_terraform``; keep the name so we don't
+    churn unrelated callers. New code should call :func:`find_binary`.
+    """
+    return find_binary()
+
+
+def _binary_name(path: str) -> str:
+    """Return the trailing component of a binary path (``tofu`` or ``terraform``).
+
+    Used to make error messages and warnings reflect what was actually run.
+    """
+    return Path(path).name
 
 
 def run(
@@ -77,7 +129,7 @@ def run(
     stream: bool = False,
     check: bool = True,
 ) -> TerraformResult:
-    """Run ``terraform <args>`` in ``cwd``.
+    """Run ``<tofu|terraform> <args>`` in ``cwd``.
 
     Args:
         args: Subcommand arguments (e.g. ``["init", "-input=false"]``).
@@ -92,10 +144,10 @@ def run(
               exit. If False, return a :class:`TerraformResult` regardless.
 
     Raises:
-        TerraformNotFoundError: If terraform isn't installed.
+        TerraformNotFoundError: If neither ``tofu`` nor ``terraform`` is installed.
         TerraformError: If ``check`` is True and the process exits non-zero.
     """
-    binary = find_terraform()
+    binary = find_binary()
     cwd = Path(cwd)
     cwd.mkdir(parents=True, exist_ok=True)
 
@@ -140,23 +192,26 @@ def run(
 
     if check and result.returncode != 0:
         raise TerraformError(
-            result.returncode, result.stdout, result.stderr
+            result.returncode,
+            result.stdout,
+            result.stderr,
+            binary=_binary_name(binary),
         )
     return result
 
 
 def init(cwd: Path, *, stream: bool = False) -> TerraformResult:
-    """``terraform init -input=false``. Idempotent."""
+    """``<tofu|terraform> init -input=false``. Idempotent."""
     return run(["init", "-input=false"], cwd=cwd, stream=stream)
 
 
 def plan(cwd: Path, *, stream: bool = False) -> TerraformResult:
-    """``terraform plan -input=false``."""
+    """``<tofu|terraform> plan -input=false``."""
     return run(["plan", "-input=false"], cwd=cwd, stream=stream)
 
 
 def apply(cwd: Path, *, stream: bool = False) -> TerraformResult:
-    """``terraform apply -auto-approve -input=false``."""
+    """``<tofu|terraform> apply -auto-approve -input=false``."""
     return run(
         ["apply", "-auto-approve", "-input=false"],
         cwd=cwd,
@@ -165,9 +220,9 @@ def apply(cwd: Path, *, stream: bool = False) -> TerraformResult:
 
 
 def output_json(cwd: Path) -> dict:
-    """Return ``terraform output -json`` as a flat ``{key: value}`` dict.
+    """Return ``<tofu|terraform> output -json`` as a flat ``{key: value}`` dict.
 
-    Terraform's ``-json`` form wraps each value as
+    Terraform/OpenTofu's ``-json`` form wraps each value as
     ``{"value": ..., "type": ...}``; this strips that envelope so callers
     can write the values straight into ``state.json`` outputs.
     """
@@ -187,6 +242,7 @@ __all__ = [
     "TerraformNotFoundError",
     "TerraformResult",
     "apply",
+    "find_binary",
     "find_terraform",
     "init",
     "output_json",

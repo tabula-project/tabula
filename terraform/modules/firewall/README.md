@@ -39,7 +39,7 @@ over a map of rule definitions) because:
 1. The rule set is small and stable.
 2. Each rule's contract (source, target, port, semantics) is different —
    a single rendering template would hide more than it shares.
-3. Per-resource diffs in `terraform plan` are easier to audit.
+3. Per-resource diffs in `tofu plan` (or `terraform plan`) are easier to audit.
 
 ## IAP CIDR
 

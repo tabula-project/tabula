@@ -7,17 +7,22 @@ same argparse group when its PR lands.
 
 Key invariants for ``down``:
 
-* Trusting ``terraform destroy`` exit code alone is **not** sufficient.
+* Trusting the IaC tool's ``destroy`` exit code alone is **not** sufficient.
   Post-destroy verification independently asks GCP for any resource still
   carrying ``labels.enclave=<name>`` and refuses to delete the local state
   directory if leftovers exist.
-* If ``terraform destroy`` fails partway through, the local state directory
+* If ``destroy`` fails partway through, the local state directory
   is left **intact** so the user can retry. ``--force`` is the documented
   recovery path for the unhappy case where ``state.json`` is missing or
   corrupt.
 * All paths are idempotent: running ``down`` against an already-destroyed
-  enclave is a clean no-op (terraform destroy reports nothing to do,
-  verification returns no leftovers, state dir is removed).
+  enclave is a clean no-op (destroy reports nothing to do, verification
+  returns no leftovers, state dir is removed).
+
+OpenTofu migration (#96): the binary is resolved at run time via
+:func:`tabula_cli._terraform.find_binary` — ``tofu`` (OpenTofu, MPL 2.0)
+is preferred and ``terraform`` (BUSL since v1.6) is the fallback. The user
+sees the binary name that actually ran in error messages.
 
 Exit codes:
 
@@ -38,6 +43,7 @@ from typing import Callable
 
 import typer
 
+from tabula_cli import _terraform as _tf
 from tabula_cli.state import (
     ENCLAVE_LABEL_KEY,
     EnclaveState,
@@ -82,7 +88,7 @@ def _default_prompt(message: str) -> bool:
 
 @dataclass(frozen=True)
 class TerraformResult:
-    """Result of a ``terraform destroy`` invocation."""
+    """Result of a ``destroy`` invocation against ``tofu``/``terraform``."""
 
     returncode: int
     stdout: str
@@ -94,13 +100,23 @@ class TerraformResult:
 
 
 def _run_terraform_destroy(terraform_dir: Path) -> TerraformResult:
-    """Run ``terraform destroy -auto-approve`` in ``terraform_dir``.
+    """Run ``<tofu|terraform> destroy -auto-approve`` in ``terraform_dir``.
 
-    Shells out to the ``terraform`` binary on PATH. The caller is
+    Resolves the IaC binary at call time via
+    :func:`tabula_cli._terraform.find_binary` so OpenTofu (``tofu``) is
+    preferred and Terraform (``terraform``) is the fallback. The caller is
     responsible for surfacing stderr on failure.
     """
+    try:
+        binary = _tf.find_binary()
+    except _tf.TerraformNotFoundError as exc:
+        # Encode the missing-binary case as a non-zero result so the
+        # caller's normal failure path renders the message and exits the
+        # right code, rather than crashing.
+        return TerraformResult(returncode=127, stdout="", stderr=str(exc))
+
     proc = subprocess.run(  # noqa: S603 — controlled, not user-driven argv
-        ["terraform", "destroy", "-auto-approve"],
+        [binary, "destroy", "-auto-approve"],
         cwd=str(terraform_dir),
         capture_output=True,
         text=True,
@@ -222,7 +238,7 @@ def enclave_down(opts: DownOptions) -> int:  # noqa: C901 — top-level orchestr
     +-----------------------------+----------------------------------------+
     | state present, no --yes     | confirm; on 'no' exit 0, no action     |
     +-----------------------------+----------------------------------------+
-    | terraform destroy fails     | exit 2, state dir preserved            |
+    | destroy fails (tofu/tf)     | exit 2, state dir preserved            |
     +-----------------------------+----------------------------------------+
     | leftovers found post-destroy| exit 3, state dir preserved            |
     +-----------------------------+----------------------------------------+
@@ -290,16 +306,21 @@ def enclave_down(opts: DownOptions) -> int:  # noqa: C901 — top-level orchestr
         if not terraform_dir.exists():
             _emit(
                 f"error: terraform_dir from state.json does not exist: {terraform_dir}. "
-                f"Use --force to skip terraform and verify cloud-side only.",
+                f"Use --force to skip the destroy step and verify cloud-side only.",
                 err=True,
             )
             return EXIT_USER_ERROR
 
-        _emit(f"running: terraform destroy in {terraform_dir}")
+        # Resolve the binary name once so logs reflect what actually ran.
+        try:
+            binary_name = Path(_tf.find_binary()).name
+        except _tf.TerraformNotFoundError:
+            binary_name = "tofu"
+        _emit(f"running: {binary_name} destroy in {terraform_dir}")
         tf = opts.terraform_runner(terraform_dir)
         if not tf.ok:
             _emit(
-                "terraform destroy failed; local state preserved for retry.\n"
+                f"{binary_name} destroy failed; local state preserved for retry.\n"
                 f"  retry: tabula enclave down {name}\n"
                 f"  recover: tabula enclave down {name} --force --project=<gcp project id>",
                 err=True,
@@ -308,7 +329,9 @@ def enclave_down(opts: DownOptions) -> int:  # noqa: C901 — top-level orchestr
                 _emit(tf.stderr.rstrip(), err=True)
             return EXIT_TERRAFORM_FAILURE
     else:
-        _emit("--force: skipping terraform destroy (no state); cloud-side check only.")
+        _emit(
+            "--force: skipping destroy (no state); cloud-side check only."
+        )
 
     # 4. Independent post-destroy verification ------------------------------- #
     try:
@@ -372,9 +395,10 @@ def down(
 ) -> None:
     """Tear an enclave down to zero residual cost.
 
-    Runs ``terraform destroy``, then independently verifies via the GCP API
-    that nothing labelled ``enclave=<name>`` remains. Removes the local state
-    directory only on a clean destroy + clean verification.
+    Runs ``tofu destroy`` (falling back to ``terraform destroy`` when
+    OpenTofu isn't installed), then independently verifies via the GCP API
+    that nothing labelled ``enclave=<name>`` remains. Removes the local
+    state directory only on a clean destroy + clean verification.
     """
     opts = DownOptions(
         name=name,
@@ -404,10 +428,11 @@ def add_subparser(sub: "argparse._SubParsersAction") -> None:
         "down",
         help="Tear down an enclave to zero residual cost.",
         description=(
-            "Tear down enclave <name>. Runs `terraform destroy`, then "
-            "independently verifies via the GCP API that nothing labelled "
-            f"{ENCLAVE_LABEL_KEY}=<name> remains. Removes the local state "
-            "directory only on a clean destroy + clean verification."
+            "Tear down enclave <name>. Runs `tofu destroy` (falls back to "
+            "`terraform destroy`), then independently verifies via the GCP "
+            f"API that nothing labelled {ENCLAVE_LABEL_KEY}=<name> remains. "
+            "Removes the local state directory only on a clean destroy + "
+            "clean verification."
         ),
     )
     p.add_argument("name", help="Enclave name (DNS-safe).")

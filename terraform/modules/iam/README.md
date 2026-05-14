@@ -154,15 +154,18 @@ random suffixes or timestamps. The custom role uses a deterministic role ID
 
 ## Validation
 
+The repo uses [OpenTofu](https://opentofu.org/) (`tofu`); `terraform` works as
+a fallback.
+
 ```sh
 cd terraform/modules/iam
-terraform fmt -check
-terraform init -backend=false
-terraform validate
+tofu fmt -check
+tofu init -backend=false
+tofu validate
 ```
 
 The `examples/basic/` invocation (see below) provides a concrete configuration
-for `terraform plan` against an empty/scratch project.
+for `tofu plan` against an empty/scratch project.
 
 ## Example
 
