@@ -305,6 +305,16 @@ class ClaudeProcess:
         if self._proc is None:
             raise ClaudeProcessNotStarted("stream_tokens before start")
 
+        # Per-turn flag: when claude is invoked with --include-partial-messages
+        # (always true in DEFAULT_CLAUDE_ARGV), it emits BOTH stream_event
+        # content_block_delta partials AND a final `assistant` whole-message
+        # event with the assembled content. Yielding from both paths
+        # duplicates every response. The `assistant` path is a fallback for
+        # builds without partial-message support; gate it on "no deltas
+        # yielded this turn" so we yield each chunk exactly once. The local
+        # flag resets implicitly on re-entry for the next turn.
+        yielded_deltas = False
+
         while True:
             event = await self._event_queue.get()
             if event is None:
@@ -329,15 +339,18 @@ class ClaudeProcess:
                     delta = inner.get("delta") or {}
                     text = delta.get("text")
                     if text:
+                        yielded_deltas = True
                         yield text
                 # Other inner types (message_start, content_block_start, etc.)
                 # are ignored — they're metadata.
                 continue
 
             if etype == "assistant":
-                # Whole-message form (when partials are unavailable). Yield the
-                # text blocks so callers still see output even without
-                # --include-partial-messages support.
+                # Whole-message form. Only emit when deltas weren't already
+                # streamed for this turn (fallback for builds without
+                # --include-partial-messages support).
+                if yielded_deltas:
+                    continue
                 msg = event.get("message") or {}
                 content = msg.get("content") or []
                 for block in content:
