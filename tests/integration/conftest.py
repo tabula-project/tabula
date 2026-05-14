@@ -286,7 +286,7 @@ def _wire_stack_available() -> tuple[bool, str]:
     """
     required = (
         "tabula_wire.framing",
-        "tabula_wire.crypto.noise",
+        "tabula_wire.crypto.noise_xx",
         "tabula_wire.crypto.keys",
         "tabula_wire.proto.v1",
         "tabula_wire.server.listener",
