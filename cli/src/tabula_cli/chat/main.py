@@ -53,9 +53,11 @@ from tabula_wire.client.pinning import lookup
 from tabula_wire.proto.v1 import (
     AssistantToken,
     AssistantTurnEnd,
+    ClientFrame,
     EndSession,
     ErrorFrame,
     Hello,
+    ServerFrame,
     UserMessage,
     Welcome,
 )
@@ -327,12 +329,19 @@ async def _run_session(
     # Open channel.
     try:
         if channel_factory is None:
+            from tabula_wire.crypto.keys import SecretKey
+
+            sk = (
+                local_static_key
+                if isinstance(local_static_key, SecretKey)
+                else SecretKey(raw=bytes(local_static_key))
+            )
             channel = await connect(
                 target.host,
                 target.port,
-                local_static_key,
+                sk,
                 target.expected_pubkey,
-                timeout=connect_timeout,
+                connect_timeout_s=connect_timeout,
             )
         else:
             channel = await channel_factory(target, local_static_key, connect_timeout)
@@ -437,7 +446,7 @@ async def _session_loop(
     """
 
     # 1. Hello / Welcome handshake.
-    await channel.send(Hello(protocol_version=_PROTOCOL_VERSION))
+    await channel.send(ClientFrame(hello=Hello(protocol_version=_PROTOCOL_VERSION)))
     try:
         first = await channel.recv()
     except ServerDisconnected as exc:
@@ -449,23 +458,25 @@ async def _session_loop(
     except ProtocolError as exc:
         print(f"tabula chat connect: protocol error: {exc}", file=stderr)
         return 5
-    if isinstance(first, ErrorFrame):
+    # The dialer returns ServerFrame envelopes; unwrap via the oneof.
+    which = first.WhichOneof("payload")
+    if which == "error":
         print(
             f"tabula chat connect: server rejected hello "
-            f"[{first.code}]: {first.message}",
+            f"[{first.error.code}]: {first.error.message}",
             file=stderr,
         )
         return 3
-    if not isinstance(first, Welcome):
+    if which != "welcome":
         print(
             "tabula chat connect: protocol error: expected Welcome, "
-            f"got {type(first).__name__}",
+            f"got payload={which!r}",
             file=stderr,
         )
         return 5
 
     # 2. Connection banner.
-    _print_banner(stdout, session_label, first)
+    _print_banner(stdout, session_label, first.welcome)
     _write_prompt(stdout)
 
     # 3. Multiplex loop.
@@ -482,7 +493,7 @@ async def _session_loop(
             wait_set = {t for t in (recv_task, input_task) if t is not None}
             if not wait_set:
                 # Stdin EOF observed and no recv outstanding: send EndSession.
-                await channel.send(EndSession(reason="eof"))
+                await channel.send(ClientFrame(end=EndSession(reason="eof")))
                 return 0
             done, _ = await asyncio.wait(
                 wait_set, return_when=asyncio.FIRST_COMPLETED
@@ -494,10 +505,10 @@ async def _session_loop(
                 input_task = None
                 if line is None:
                     eof_seen = True
-                    await channel.send(EndSession(reason="eof"))
+                    await channel.send(ClientFrame(end=EndSession(reason="eof")))
                     # Continue draining recv until the server closes.
                 else:
-                    await channel.send(UserMessage(text=line))
+                    await channel.send(ClientFrame(user_message=UserMessage(text=line)))
 
             if recv_task is not None and recv_task in done:
                 try:
@@ -525,7 +536,7 @@ async def _session_loop(
     except asyncio.CancelledError:
         # Caller (Ctrl-C handler) cancelled us. Best-effort EndSession.
         try:
-            await channel.send(EndSession(reason="interrupt"))
+            await channel.send(ClientFrame(end=EndSession(reason="interrupt")))
         except Exception:
             pass
         return 130
@@ -558,32 +569,31 @@ def _write_prompt(stdout: Any) -> None:
 def _render_server_frame(frame: Any, stdout: Any, stderr: Any) -> int | None:
     """Render one ``ServerFrame``. Returns exit code or ``None`` to keep going."""
 
-    if isinstance(frame, AssistantToken):
-        # Streaming render: write the chunk verbatim, flush per token. No
-        # print() -- its newline + sep handling is the wrong shape here.
-        stdout.write(frame.text)
+    which = frame.WhichOneof("payload")
+    if which == "token":
+        # Streaming render: write the chunk verbatim, flush per token.
+        stdout.write(frame.token.text)
         stdout.flush()
         return None
-    if isinstance(frame, AssistantTurnEnd):
+    if which == "turn_end":
         stdout.write(SEPARATOR)
         stdout.flush()
         _write_prompt(stdout)
         return None
-    if isinstance(frame, ErrorFrame):
+    if which == "error":
         # Newline first so we don't smear into a half-rendered token line.
         stdout.write("\n")
         stdout.flush()
         print(
-            f"tabula chat connect: server error [{frame.code}]: {frame.message}",
+            f"tabula chat connect: server error [{frame.error.code}]: {frame.error.message}",
             file=stderr,
         )
         return 3
-    # Unknown / out-of-order frame.
+    # Unknown / out-of-order payload.
     stdout.write("\n")
     stdout.flush()
     print(
-        f"tabula chat connect: protocol error: unexpected "
-        f"{type(frame).__name__} mid-session",
+        f"tabula chat connect: protocol error: unexpected payload={which!r} mid-session",
         file=stderr,
     )
     return 5

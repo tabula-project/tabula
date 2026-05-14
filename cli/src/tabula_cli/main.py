@@ -6,12 +6,14 @@ Currently registered subcommand groups:
 - ``servers`` -- manage the client-side server pubkey pinning store (#32)
 - ``keygen``  -- generate and inspect Tabula static X25519 keypairs (#46,
   relocated from ``tabula-wire`` per #57 / #68)
+- ``chat``    -- open a chat session against a pinned enclave (#29)
 """
 
 from __future__ import annotations
 
 import typer
 
+from tabula_cli.chat import app as chat_app
 from tabula_cli.enclave import app as enclave_app
 from tabula_cli.keygen import app as keygen_app
 from tabula_cli.servers.commands import app as servers_app
@@ -39,6 +41,12 @@ app.add_typer(
     keygen_app,
     name="keygen",
     help="Generate or inspect a Tabula X25519 static keypair.",
+)
+
+app.add_typer(
+    chat_app,
+    name="chat",
+    help="Open a chat session against a pinned Tabula enclave.",
 )
 
 
