@@ -98,57 +98,54 @@ async def _spawn_server(
     bind_host: str,
     bind_port: int,
     server_private_key: bytes,
-    server_public_key: bytes,
     claude_cmd: list[str],
     state_dir: Path,
 ) -> tuple[Any, asyncio.Task[Any]]:
-    """Spawn the canonical server entrypoint as an asyncio task.
+    """Spawn the canonical server entrypoint in-process.
 
-    Returns ``(server_handle, task)`` where ``server_handle`` is whatever the
-    server's ``serve`` / ``listen`` factory returns (typically an object with a
-    ``close()`` method or an ``asyncio.Server``). The integration test relies
-    on the canonical layout from #57:
+    Uses ``tabula_wire.server.main.serve_with_sessions`` — the high-level
+    composition of listener + session manager + claude driver from issue
+    #25 (post-#57 canonical layout). Returns ``(server_handle, task)`` where
+    ``server_handle`` is the ``asyncio.Server`` bound to ``bind_port`` and
+    ``task`` is a placeholder coroutine (kept for backwards-compat with the
+    existing teardown shape — the real server lifecycle is controlled via
+    ``server_handle.close()``).
 
-    * ``tabula_wire.server.listener.serve(...)`` is the entrypoint
-    * It accepts at least: ``host``, ``port``, ``private_key``, ``public_key``,
-      ``claude_cmd``, and ``state_dir``
-    * It binds before returning so the test can connect immediately
-
-    If the actual signature drifts from this shape we adapt by introspection
-    here — better to localize the shim than to refuse the test outright.
+    The per-session ``claude`` subprocess is constructed via
+    ``ClaudeProcess(argv_override=tuple(claude_cmd))``; for the fake-claude
+    fixture this means ``["fake_claude.sh"]``.
     """
-    from tabula_wire.server import listener as _listener  # type: ignore[import-not-found]
+    from tabula_wire.server.claude_driver import ClaudeProcess
+    from tabula_wire.server.config import (
+        PROTOCOL_VERSION,
+        ServerConfig,
+    )
+    from tabula_wire.server.main import serve_with_sessions
 
-    # Try the most likely entrypoint names in order of preference.
-    factory = None
-    for name in ("serve", "start_server", "listen", "run"):
-        if hasattr(_listener, name):
-            factory = getattr(_listener, name)
-            break
-    if factory is None:
-        pytest.skip(
-            "tabula_wire.server.listener has no recognized entrypoint "
-            "(serve/start_server/listen/run); update the harness once #20 lands"
-        )
+    claude_argv = tuple(claude_cmd)
 
-    coro = factory(
+    async def _claude_factory(config: ServerConfig) -> ClaudeProcess:
+        proc = ClaudeProcess(argv_override=claude_argv)
+        await proc.start(cwd=config.cwd)
+        return proc
+
+    config = ServerConfig(
+        cwd=state_dir,
+        max_concurrent_sessions=4,
+        protocol_version=PROTOCOL_VERSION,
+        server_version="tabula-server/e2e-test",
+    )
+    server = await serve_with_sessions(
         host=bind_host,
         port=bind_port,
-        private_key=server_private_key,
-        public_key=server_public_key,
-        claude_cmd=claude_cmd,
-        state_dir=str(state_dir),
+        static_key=bytes(server_private_key),
+        claude_factory=_claude_factory,
+        config=config,
     )
-    if asyncio.iscoroutine(coro):
-        # Some signatures return the server directly when awaited; others
-        # return a long-running task. We start a task either way and let the
-        # test's wait_for() loop confirm readiness via the TCP probe.
-        task = asyncio.create_task(coro)
-        # Give the listener a tick to bind.
-        await asyncio.sleep(0)
-        return None, task
-    # Already-bound server object.
-    return coro, asyncio.create_task(asyncio.sleep(0))
+    # No long-running task — the listener manages its own accept loop. We
+    # return a no-op task so the caller's teardown remains symmetric.
+    placeholder = asyncio.create_task(asyncio.sleep(0))
+    return server, placeholder
 
 
 async def _send_chat_round_trip(
@@ -157,127 +154,73 @@ async def _send_chat_round_trip(
     server_port: int,
     server_pubkey: bytes,
     client_private_key: bytes,
-    client_public_key: bytes,
-    pinning_store_path: Path,
     prompt: str,
 ) -> list[str]:
     """Drive the canonical client programmatically and collect streamed tokens.
 
-    Returns the list of assistant token texts received before
-    ``AssistantTurnEnd``. Skips the test if the canonical client API is not
-    importable or doesn't expose the expected entrypoints.
+    Uses ``tabula_wire.client.dialer.connect`` to perform the Noise XX
+    handshake + pinning check, then drives the protobuf-framed chat
+    protocol (Hello → Welcome → UserMessage → AssistantToken* →
+    AssistantTurnEnd → EndSession). Returns the list of token texts.
+
+    The pinning store is bypassed here: ``connect`` takes the expected
+    server pubkey directly. The store is only needed by the CLI (which
+    looks up host/port/pubkey by alias); for the programmatic harness we
+    already have all three.
     """
-    try:
-        from tabula_wire.client import dialer as _dialer  # type: ignore[import-not-found]
-        from tabula_wire.client import pinning as _pinning  # type: ignore[import-not-found]
-    except Exception as exc:
-        pytest.skip(f"client side of wire stack not importable: {exc!r}")
+    from tabula_wire.client.dialer import connect
+    from tabula_wire.crypto.keys import SecretKey
+    from tabula_wire.proto.v1 import (
+        ClientFrame,
+        EndSession,
+        Hello,
+        UserMessage,
+    )
 
-    # Pre-populate the pinning store with the server's public key. The
-    # canonical pinning module (#32) is expected to expose either an
-    # ``add(host, port, pubkey)`` method on a store class or a free function
-    # ``pin_server(...)``. We try both.
-    pinned = False
-    for klass_name in ("PinningStore", "ServerPinningStore", "PinStore"):
-        klass = getattr(_pinning, klass_name, None)
-        if klass is None:
-            continue
-        try:
-            store = klass(pinning_store_path)
-        except TypeError:
-            store = klass(path=pinning_store_path)
-        for meth in ("add", "pin", "set"):
-            if hasattr(store, meth):
-                getattr(store, meth)("demo", server_host, server_port, server_pubkey)
-                pinned = True
-                break
-        if hasattr(store, "save"):
-            store.save()
-        if pinned:
-            break
-    if not pinned:
-        for fn_name in ("pin_server", "add_pin", "write_pin"):
-            fn = getattr(_pinning, fn_name, None)
-            if fn is not None:
-                fn(pinning_store_path, "demo", server_host, server_port, server_pubkey)
-                pinned = True
-                break
-    if not pinned:
-        pytest.skip(
-            "tabula_wire.client.pinning has no recognized pin-add API "
-            "(PinningStore.add / pin_server); update the harness once #32 lands"
-        )
+    PROTOCOL_VERSION = 1
 
-    # Dial and run the round-trip. Same kind of introspective shim — the
-    # canonical layout fixes the import path; the exact function name is
-    # finalized in #27.
-    dial = None
-    for name in ("connect", "dial", "open_session"):
-        if hasattr(_dialer, name):
-            dial = getattr(_dialer, name)
-            break
-    if dial is None:
-        pytest.skip(
-            "tabula_wire.client.dialer has no recognized entrypoint; "
-            "update the harness once #27 lands"
-        )
-
-    session = await dial(
-        alias="demo",
+    channel = await connect(
         host=server_host,
         port=server_port,
-        client_private_key=client_private_key,
-        client_public_key=client_public_key,
-        pinning_store_path=pinning_store_path,
+        local_static_key=SecretKey(raw=bytes(client_private_key)),
+        expected_remote_static_pubkey=bytes(server_pubkey),
+        connect_timeout_s=5.0,
     )
 
     tokens: list[str] = []
+    try:
+        await channel.send(
+            ClientFrame(hello=Hello(protocol_version=PROTOCOL_VERSION))
+        )
+        welcome_frame = await channel.recv()
+        which = welcome_frame.WhichOneof("payload")
+        if which != "welcome":
+            raise AssertionError(
+                f"expected Welcome from server, got {which!r}: {welcome_frame!r}"
+            )
 
-    # The client API is expected to expose ``send_user_message(text)`` and
-    # ``stream_assistant_tokens()`` (async iterator) followed by
-    # ``end_session()``. If the names differ we try a few variants.
-    send = None
-    for name in ("send_user_message", "send_prompt", "send"):
-        if hasattr(session, name):
-            send = getattr(session, name)
-            break
-    if send is None:
-        pytest.skip("session object has no recognized send_user_message method")
+        await channel.send(ClientFrame(user_message=UserMessage(text=prompt)))
 
-    stream = None
-    for name in ("stream_assistant_tokens", "stream_tokens", "stream", "tokens"):
-        if hasattr(session, name):
-            stream = getattr(session, name)
-            break
-    if stream is None:
-        pytest.skip("session object has no recognized assistant token stream")
+        while True:
+            frame = await channel.recv()
+            which = frame.WhichOneof("payload")
+            if which == "token":
+                tokens.append(frame.token.text)
+            elif which == "turn_end":
+                break
+            elif which == "error":
+                raise AssertionError(
+                    f"server error frame: code={frame.error.code} "
+                    f"message={frame.error.message!r}"
+                )
+            else:
+                raise AssertionError(
+                    f"unexpected server frame during streaming: {which!r}"
+                )
 
-    end = None
-    for name in ("end_session", "close", "shutdown"):
-        if hasattr(session, name):
-            end = getattr(session, name)
-            break
-
-    await send(prompt)
-    async for frame in stream():
-        # Frames may be raw protobuf messages or simple dicts; handle both.
-        text = None
-        kind = None
-        if hasattr(frame, "WhichOneof"):
-            kind = frame.WhichOneof("payload")
-            payload = getattr(frame, kind, None) if kind else None
-            text = getattr(payload, "text", None) if payload else None
-        elif isinstance(frame, dict):
-            kind = frame.get("type") or frame.get("kind")
-            text = frame.get("text") or (frame.get("token") or {}).get("text")
-        if kind in ("assistant_turn_end", "AssistantTurnEnd", "turn_end"):
-            break
-        if text:
-            tokens.append(text)
-    if end is not None:
-        result = end()
-        if asyncio.iscoroutine(result):
-            await result
+        await channel.send(ClientFrame(end=EndSession(reason="eof")))
+    finally:
+        await channel.close()
     return tokens
 
 
@@ -300,19 +243,17 @@ async def test_e2e_localhost_fake_claude(
 
     # Generate fresh keypairs for both ends.
     server_sk, server_pk = generate_x25519_keypair()
-    client_sk, client_pk = generate_x25519_keypair()
+    client_sk, _client_pk = generate_x25519_keypair()
 
     # Allocate ports: one for the server's actual TCP listen, one for the tee.
     server_port = ephemeral_port()
     state_dir = tmp_path / "server-state"
     state_dir.mkdir()
-    pinning_store = tmp_path / "pins.json"
 
     server_handle, server_task = await _spawn_server(
         bind_host="127.0.0.1",
         bind_port=server_port,
         server_private_key=server_sk,
-        server_public_key=server_pk,
         claude_cmd=[str(fake_claude_path)],
         state_dir=state_dir,
     )
@@ -337,8 +278,6 @@ async def test_e2e_localhost_fake_claude(
                 server_port=tee.bound_port,
                 server_pubkey=server_pk,
                 client_private_key=client_sk,
-                client_public_key=client_pk,
-                pinning_store_path=pinning_store,
                 prompt=prompt,
             )
 
@@ -398,12 +337,11 @@ async def test_e2e_localhost_real_claude(
     _skip_if_wire_stack_unavailable()
 
     server_sk, server_pk = generate_x25519_keypair()
-    client_sk, client_pk = generate_x25519_keypair()
+    client_sk, _client_pk = generate_x25519_keypair()
 
     server_port = ephemeral_port()
     state_dir = tmp_path / "server-state"
     state_dir.mkdir()
-    pinning_store = tmp_path / "pins.json"
 
     claude_bin = shutil.which("claude")
     assert claude_bin is not None  # guarded by skipif
@@ -412,7 +350,6 @@ async def test_e2e_localhost_real_claude(
         bind_host="127.0.0.1",
         bind_port=server_port,
         server_private_key=server_sk,
-        server_public_key=server_pk,
         # Minimal invocation: the real claude CLI's argument shape is owned
         # by #22's claude driver; here we just pass the executable path and
         # let the driver pick the right flags.
@@ -439,8 +376,6 @@ async def test_e2e_localhost_real_claude(
                 server_port=tee.bound_port,
                 server_pubkey=server_pk,
                 client_private_key=client_sk,
-                client_public_key=client_pk,
-                pinning_store_path=pinning_store,
                 prompt=prompt,
             )
 

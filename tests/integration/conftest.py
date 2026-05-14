@@ -31,7 +31,7 @@ import socket
 import threading
 from contextlib import closing
 from pathlib import Path
-from typing import Callable
+from typing import Any, Callable
 
 import pytest
 
@@ -319,16 +319,24 @@ def wire_stack_available() -> bool:
 
 
 async def wait_for(
-    predicate: Callable[[], bool],
+    predicate: Callable[[], Any],
     *,
     timeout: float = 5.0,
     interval: float = 0.05,
     description: str = "predicate",
 ) -> None:
-    """Poll ``predicate`` until it returns truthy, or raise on timeout."""
+    """Poll ``predicate`` until it returns truthy, or raise on timeout.
+
+    Accepts either a sync predicate (returning bool) or an async predicate
+    (returning a coroutine that yields bool). Async predicates are awaited
+    before truthiness is evaluated.
+    """
     deadline = asyncio.get_running_loop().time() + timeout
     while True:
-        if predicate():
+        result = predicate()
+        if asyncio.iscoroutine(result):
+            result = await result
+        if result:
             return
         if asyncio.get_running_loop().time() >= deadline:
             raise asyncio.TimeoutError(f"{description} did not become true within {timeout}s")

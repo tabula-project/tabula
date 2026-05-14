@@ -29,6 +29,19 @@ from tests.integration.conftest import (
 # ---------------------------------------------------------------------------
 
 
+def _delta_text(event: dict) -> str | None:
+    """Extract the delta text from a claude ``stream_event`` line, or None."""
+    if event.get("type") != "stream_event":
+        return None
+    inner = event.get("event") or {}
+    if inner.get("type") != "content_block_delta":
+        return None
+    delta = inner.get("delta") or {}
+    if delta.get("type") != "text_delta":
+        return None
+    return delta.get("text")
+
+
 class TestFakeClaudeFixture:
     def test_streams_default_response_tokens(self, fake_claude_path: Path) -> None:
         proc = subprocess.run(
@@ -40,15 +53,25 @@ class TestFakeClaudeFixture:
             env={"FAKE_CLAUDE_TOKEN_DELAY_MS": "0", "PATH": "/bin:/usr/bin"},
         )
         assert proc.returncode == 0, proc.stderr
-        lines = [ln for ln in proc.stdout.splitlines() if ln.strip()]
-        assert len(lines) >= 2, "expected at least one token + turn end"
-        events = [json.loads(ln) for ln in lines]
-        token_events = [e for e in events if e.get("type") == "assistant_token"]
-        end_events = [e for e in events if e.get("type") == "assistant_turn_end"]
-        assert len(token_events) >= 2, "expected multiple streamed tokens"
-        assert len(end_events) == 1, "expected exactly one turn-end sentinel"
-        # Default response phrase is hyphen-separated; verify tokens reassemble.
-        joined = "-".join(e["text"] for e in token_events)
+        events = [
+            json.loads(ln)
+            for ln in proc.stdout.splitlines()
+            if ln.strip()
+        ]
+        # Canonical claude stream-json: one system/init line, then per-turn:
+        # multiple content_block_delta events, then one result event.
+        assert any(
+            e.get("type") == "system" and e.get("subtype") == "init"
+            for e in events
+        ), "expected initial system/init line"
+        result_events = [
+            e for e in events
+            if e.get("type") == "result" and e.get("subtype") == "success"
+        ]
+        assert len(result_events) == 1, "expected exactly one result/success per turn"
+        deltas = [t for e in events if (t := _delta_text(e)) is not None]
+        assert len(deltas) >= 2, "expected multiple streamed text deltas"
+        joined = "-".join(deltas)
         assert "zephyr" in joined and "glissando" in joined
 
     def test_response_phrase_is_overridable(self, fake_claude_path: Path) -> None:
@@ -68,8 +91,8 @@ class TestFakeClaudeFixture:
         events = [
             json.loads(ln) for ln in proc.stdout.splitlines() if ln.strip()
         ]
-        tokens = [e["text"] for e in events if e.get("type") == "assistant_token"]
-        assert tokens == ["alpha", "bravo", "charlie"]
+        deltas = [t for e in events if (t := _delta_text(e)) is not None]
+        assert deltas == ["alpha", "bravo", "charlie"]
 
 
 # ---------------------------------------------------------------------------
