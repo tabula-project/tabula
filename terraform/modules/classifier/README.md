@@ -41,7 +41,8 @@ Alternative documented for callers that need a tighter footprint:
 ### Swap procedure
 
 1. Update the `model_name` variable on the calling root module.
-2. `terraform apply` — Terraform will rewrite the GCE metadata (`user-data`).
+2. `tofu apply` (or `terraform apply` as a fallback) — the IaC tool will
+   rewrite the GCE metadata (`user-data`).
 3. The change in `user-data` triggers an instance replacement on next apply.
    If you instead want a hot swap without recreating the VM:
    - SSH into the VM via IAP.
@@ -198,14 +199,15 @@ module "classifier" {
 
 ## Validation
 
-This module ships with a fixture-free shape: no `terraform plan` is invoked
-inside the module itself. To validate locally:
+This module ships with a fixture-free shape: no `tofu plan` is invoked
+inside the module itself. To validate locally (the repo uses
+[OpenTofu](https://opentofu.org/); `terraform` works as a fallback):
 
 ```sh
 cd terraform/modules/classifier
-terraform init -backend=false
-terraform validate
-terraform fmt -check -recursive
+tofu init -backend=false
+tofu validate
+tofu fmt -check -recursive
 ```
 
 A `plan` against a real VPC + IAM module fixture is the integration test for

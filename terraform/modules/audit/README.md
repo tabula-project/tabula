@@ -136,7 +136,7 @@ exfil incident: page the on-call, do not just log it.
 | `gcs_export_enabled`              | `bool`         | `true`      | Whether to create the GCS export sink + bucket.                                                   |
 | `gcs_bucket_location`             | `string`       | `"US"`      | Location for the GCS audit export bucket.                                                         |
 | `gcs_nearline_after_days`         | `number`       | `30`        | Age (days) at which GCS export objects transition to NEARLINE.                                    |
-| `gcs_force_destroy`               | `bool`         | `false`     | Allow `terraform destroy` to delete the GCS bucket even if non-empty. Keep `false` in production. |
+| `gcs_force_destroy`               | `bool`         | `false`     | Allow `tofu destroy` to delete the GCS bucket even if non-empty. Keep `false` in production. |
 | `extra_log_filter_terms`          | `list(string)` | `[]`        | Extra OR'd filter terms appended to the sink filter.                                              |
 | `enable_vertex_data_access_audit` | `bool`         | `true`      | Enable `DATA_READ`/`DATA_WRITE` audit logging for `aiplatform.googleapis.com`.                    |
 | `labels`                          | `map(string)`  | `{}`        | Extra labels merged into the default `{ enclave, managed-by, purpose }` label set.                |
@@ -206,18 +206,21 @@ classifier.
 
 ## Validation
 
+The repo uses [OpenTofu](https://opentofu.org/) (`tofu`); `terraform` works as
+a fallback. The CLI invocations below show `tofu`.
+
 ```sh
 cd terraform/modules/audit/examples/basic
 cp terraform.tfvars.example terraform.tfvars   # edit project_id
-terraform init
-terraform validate
-terraform plan
+tofu init
+tofu validate
+tofu plan
 ```
 
-`terraform validate` runs without GCP credentials. `terraform plan` requires
+`tofu validate` runs without GCP credentials. `tofu plan` requires
 ADC pointing at a real project but does not mutate anything.
 
-After `terraform apply`, run the post-deploy smoke check:
+After `tofu apply`, run the post-deploy smoke check:
 
 ```sh
 gcloud logging sinks list --project "$PROJECT_ID" --format='value(destination)' \

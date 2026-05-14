@@ -30,6 +30,14 @@ jobs:
           python-version: "3.12"
           cache: pip
 
+      # OpenTofu (MPL 2.0) replaces Terraform (BUSL since v1.6) per #96.
+      # The CLI's `_terraform.find_binary()` prefers `tofu` and falls back
+      # to `terraform`; CI installs only OpenTofu so the offline smoke test
+      # (`test_enclave_up_smoke.py`) actually exercises a real IaC run.
+      - uses: opentofu/setup-opentofu@v1
+        with:
+          tofu_version: "1.7.3"
+
       - name: Install test deps
         run: |
           python -m pip install --upgrade pip

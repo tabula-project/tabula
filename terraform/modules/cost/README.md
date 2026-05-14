@@ -31,9 +31,9 @@ When the budget breaches `kill_threshold_percent`, the Cloud Function:
 2. Issues `compute.instances.stop` on each running one (idempotent — already-stopped VMs are skipped).
 3. Writes `gs://<state_bucket>/enclaves/<enclave_name>/state.json` with `cost_killed: true`.
 
-It **does not** call `terraform destroy`. It **does not** delete disks, state files, or any other infrastructure. A stopped GPU costs ~zero; preserving disks and logs lets the operator investigate why the budget blew up before deciding to tear down.
+It **does not** call `tofu destroy` (or `terraform destroy`). It **does not** delete disks, state files, or any other infrastructure. A stopped GPU costs ~zero; preserving disks and logs lets the operator investigate why the budget blew up before deciding to tear down.
 
-The destroy path is gated behind `tabula enclave down` (see issue #28), which is responsible for backing up Terraform state and any persistent disks before teardown.
+The destroy path is gated behind `tabula enclave down` (see issue #28), which is responsible for backing up OpenTofu/Terraform state and any persistent disks before teardown.
 
 ### Pub/Sub at-least-once delivery — function is idempotent
 
@@ -70,7 +70,7 @@ With `auto_kill_enabled = false`:
 - The budget, the threshold rules, and the Pub/Sub notifications still fire normally — operators get email at 50/90/100% as usual.
 - The Cloud Function runs and logs the threshold breach but does **not** stop any VMs and does **not** write the `cost_killed` marker.
 
-This leaves the safety net inert without disabling visibility. Re-enable by setting `auto_kill_enabled = true` and `terraform apply`-ing.
+This leaves the safety net inert without disabling visibility. Re-enable by setting `auto_kill_enabled = true` and `tofu apply`-ing (or `terraform apply`-ing).
 
 ## Re-arming after an auto-kill
 
@@ -117,18 +117,21 @@ module "cost" {
 - **Per-resource / per-VM billing breakdown** — out of scope. Project-level budget only.
 - **Dynamic budget adjustment** — not implemented; budget is set at apply time.
 - **Predictive alerts** ("projected to exceed budget") — out of scope; static 50/90/100% thresholds are sufficient for MVP.
-- **Auto-`terraform destroy`** — explicitly avoided. Destroy is gated behind `tabula enclave down` (#28) which backs up state and disks first.
+- **Auto-`tofu destroy`** — explicitly avoided. Destroy is gated behind `tabula enclave down` (#28) which backs up state and disks first.
 - **Billing-account-level budgets** — out of scope; this is per-project only.
 
 ## Testing
 
-### Terraform
+### OpenTofu (or Terraform fallback)
+
+The repo uses [OpenTofu](https://opentofu.org/) (`tofu`); `terraform` works as
+a fallback (same CLI surface).
 
 ```sh
 cd terraform/modules/cost
-terraform fmt -recursive -check
-terraform init -backend=false
-terraform validate
+tofu fmt -recursive -check
+tofu init -backend=false
+tofu validate
 ```
 
 ### Cloud Function

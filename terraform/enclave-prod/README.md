@@ -4,20 +4,26 @@ Real-GCP sibling to `terraform/enclave/`. This composition wires the real
 modules under `terraform/modules/<name>/` and is what `tabula enclave up`
 runs against when invoked with `--composition prod`.
 
+> **IaC tool**: like the stub composition, this directory is driven by
+> [OpenTofu](https://opentofu.org/) (MPL 2.0). The CLI prefers `tofu` and
+> falls back to `terraform` (BUSL since v1.6) if you haven't installed
+> OpenTofu yet — see #96.
+
 ## Why two compositions?
 
 The default `terraform/enclave/` composition uses stub modules that make
-**zero cloud API calls** — `terraform plan` and `apply` succeed against it
-with no GCP credentials. That property is bought with one trade-off: applies
-against the stub composition produce no real infrastructure (synthetic
-outputs like `classifier_ip = 203.0.113.10`, which is RFC 5737 TEST-NET-3).
+**zero cloud API calls** — `tofu plan` and `apply` (or the `terraform`
+equivalents) succeed against it with no GCP credentials. That property is
+bought with one trade-off: applies against the stub composition produce no
+real infrastructure (synthetic outputs like
+`classifier_ip = 203.0.113.10`, which is RFC 5737 TEST-NET-3).
 
 This composition trades the offline-plan property for real infrastructure.
 Decision rationale: see issue #107 (architect proposal).
 
 | Property | `terraform/enclave/` (stub) | `terraform/enclave-prod/` (this dir) |
 |---|---|---|
-| Offline `terraform plan` | ✅ Works without credentials | ❌ Requires ADC |
+| Offline `tofu plan` | ✅ Works without credentials | ❌ Requires ADC |
 | Real GCP resources on apply | ❌ Synthetic outputs only | ✅ Creates VPC, VMs, IAM, firewall, PSC |
 | Cost on apply | $0 | Real GCP bill (mostly T4 GPU when awake + gitea always-on) |
 | CI test compatibility | ✅ Default; no secrets needed | ⚠️ Needs a GCP sandbox project |

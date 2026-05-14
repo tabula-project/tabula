@@ -49,8 +49,8 @@ attached via `attached_disk` with `auto_delete = false`. The semantics:
 | ------------------------------------------- | ------------------------------------------ |
 | In-place VM rebuild (machine-type change, image bump, etc.) | **Survives.** Reattached to the new VM. |
 | Manual `gcloud compute instances delete`    | **Survives.** Disk is left orphaned, ready to reattach. |
-| `terraform destroy` of this module          | **Destroyed**, alongside the instance.     |
-| `terraform destroy` of the parent enclave   | **Destroyed**, alongside everything else.  |
+| `tofu destroy` of this module               | **Destroyed**, alongside the instance.     |
+| `tofu destroy` of the parent enclave        | **Destroyed**, alongside everything else.  |
 
 This matches the issue's intent: "within an enclave's lifetime, the Gitea data
 should survive a VM rebuild; across enclave teardowns, it's fine to lose it."
@@ -61,7 +61,7 @@ existing data disk to a fresh VM preserves its contents. An `fstab` entry by
 UUID is added so the mount survives reboot.
 
 If you need to back the disk up before destroy, take a `google_compute_snapshot`
-out-of-band before running `terraform destroy`.
+out-of-band before running `tofu destroy`.
 
 ## Internal DNS scheme
 
@@ -170,19 +170,20 @@ wizard or self-register before the admin is seeded.
 
 ## Validation
 
-The example under `examples/basic/` is a stub root module suitable for
-`terraform validate` and `terraform plan` smoke tests:
+The repo uses [OpenTofu](https://opentofu.org/) (`tofu`); `terraform` works as
+a fallback. The example under `examples/basic/` is a stub root module suitable
+for `tofu validate` and `tofu plan` smoke tests:
 
 ```sh
 cd terraform/modules/gitea/examples/basic
 cp terraform.tfvars.example terraform.tfvars   # edit project_id
-terraform init
-terraform validate
-terraform plan
+tofu init
+tofu validate
+tofu plan
 ```
 
-`terraform validate` runs without GCP credentials. `terraform plan` requires
-ADC pointing at a real project and the `compute` and `dns` APIs enabled, but
+`tofu validate` runs without GCP credentials. `tofu plan` requires ADC
+pointing at a real project and the `compute` and `dns` APIs enabled, but
 does not mutate anything.
 
 ## Dependencies

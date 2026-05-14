@@ -5,11 +5,17 @@ Provisions (or re-applies) a Tabula enclave by driving the
 enclave prints current status and asks before re-applying. ``--yes`` skips
 the prompt for scripting.
 
+The IaC binary is resolved at run time by
+:func:`tabula_cli._terraform.find_binary`: ``tofu`` (OpenTofu, MPL 2.0)
+when available, otherwise ``terraform`` (BUSL since v1.6) as a fallback
+(#96). The ``.tf`` files themselves are unchanged — OpenTofu reads the
+same Terraform Registry providers and the same state-file format.
+
 Exit codes (per #26 acceptance criteria):
 
 - 0: success
 - 2: validation error (bad name, bad flag, wrong schema version on disk)
-- 3: terraform invocation failed
+- 3: IaC invocation (tofu/terraform) failed
 - 4: GCP application-default credentials missing
 """
 
@@ -192,7 +198,7 @@ def _materialize_workdir(
 
 
 def _capture_outputs_safely(tf_dir: Path) -> dict:
-    """Best-effort terraform outputs.
+    """Best-effort IaC outputs (``tofu output -json`` / ``terraform output -json``).
 
     The stub root module emits ``classifier_ip`` and ``noise_port`` as
     placeholders. Real outputs land as sibling modules merge. We never let
@@ -236,7 +242,7 @@ def up(
     dry_run: bool = typer.Option(
         False,
         "--dry-run",
-        help="Run `terraform plan` only; print the plan and exit 0.",
+        help="Run `tofu plan` (or `terraform plan`) only; print the plan and exit 0.",
     ),
     yes: bool = typer.Option(
         False,
@@ -248,7 +254,7 @@ def up(
         False,
         "--verbose",
         "-v",
-        help="Stream terraform stdout/stderr live instead of summarizing.",
+        help="Stream tofu/terraform stdout/stderr live instead of summarizing.",
     ),
     composition: str = typer.Option(
         "stub",
@@ -297,10 +303,11 @@ def up(
         )
         raise typer.Exit(code=EXIT_VALIDATION)
 
-    # 3) ADC check before we even touch terraform -- fail fast with a clean
-    #    message rather than letting `terraform apply` blow up opaquely.
-    #    The stub composition makes no GCP calls so the check is skipped for
-    #    it; the prod composition requires ADC for both plan AND apply.
+    # 3) ADC check before we even touch the IaC tool -- fail fast with a
+    #    clean message rather than letting `tofu apply` (or `terraform
+    #    apply`) blow up opaquely. The stub composition makes no GCP calls
+    #    so the check is skipped for it; the prod composition requires ADC
+    #    for both plan AND apply.
     needs_adc = composition == "prod" or not dry_run
     if needs_adc and not _adc_present():
         typer.echo(
@@ -340,14 +347,15 @@ def up(
         typer.echo(f"error: {e}", err=True)
         raise typer.Exit(code=EXIT_VALIDATION) from None
 
-    # 6) terraform init (idempotent).
+    # 6) IaC init (idempotent). Binary is `tofu` (preferred) or `terraform`
+    #    (fallback); error messages reflect what actually ran.
     try:
         tf.init(tf_dir, stream=verbose)
     except tf.TerraformNotFoundError as e:
         typer.echo(f"error: {e}", err=True)
         raise typer.Exit(code=EXIT_VALIDATION) from None
     except tf.TerraformError as e:
-        typer.echo("error: terraform init failed", err=True)
+        typer.echo(f"error: {e.binary} init failed", err=True)
         if e.stderr:
             typer.echo(e.stderr, err=True)
         raise typer.Exit(code=EXIT_TERRAFORM) from None
@@ -357,7 +365,7 @@ def up(
         try:
             result = tf.plan(tf_dir, stream=verbose)
         except tf.TerraformError as e:
-            typer.echo("error: terraform plan failed", err=True)
+            typer.echo(f"error: {e.binary} plan failed", err=True)
             if e.stderr:
                 typer.echo(e.stderr, err=True)
             raise typer.Exit(code=EXIT_TERRAFORM) from None
@@ -369,7 +377,7 @@ def up(
     try:
         tf.apply(tf_dir, stream=verbose)
     except tf.TerraformError as e:
-        typer.echo("error: terraform apply failed", err=True)
+        typer.echo(f"error: {e.binary} apply failed", err=True)
         if e.stderr:
             typer.echo(e.stderr, err=True)
         # Acceptance: leave state intact on failure.

@@ -324,7 +324,10 @@ class TestTerraformFailure:
         # State preserved so retry is possible.
         assert (root / "demo" / "state.json").exists()
         err = capsys.readouterr().err
-        assert "terraform destroy failed" in err
+        # Message reflects whichever binary actually ran (tofu preferred,
+        # terraform fallback — see _terraform.find_binary).
+        assert "destroy failed" in err
+        assert ("tofu" in err) or ("terraform" in err)
 
     def test_missing_terraform_dir_is_user_error(self, tmp_path: Path) -> None:
         # state.json points at a terraform_dir that does not exist.

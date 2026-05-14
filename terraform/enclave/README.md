@@ -2,8 +2,15 @@
 
 This is the **offline-plan** composition: every sibling module reference
 points at a stub under `./stubs/<name>/` that emits synthetic outputs and
-makes zero GCP API calls. `terraform plan` and `apply` succeed against it
-with no credentials. It's the default that `tabula enclave up` runs.
+makes zero GCP API calls. `tofu plan` and `apply` (or `terraform plan` /
+`apply` as a fallback) succeed against it with no credentials. It's the
+default that `tabula enclave up` runs.
+
+> **IaC tool**: the repo migrated from Terraform (BUSL since v1.6) to
+> [OpenTofu](https://opentofu.org/) (MPL 2.0) in #96. The directory name
+> `terraform/` is retained because it is OpenTofu's de-facto convention
+> too; only the binary changed. The CLI prefers `tofu` and falls back to
+> `terraform` if you haven't installed OpenTofu yet.
 
 **Looking for the real-GCP composition?** It lives at
 [`../enclave-prod/`](../enclave-prod/README.md) and is selected via
@@ -13,7 +20,7 @@ output names (`classifier_ip`, `noise_port`, `enclave_name`) so
 
 | Property | this dir (stub) | `terraform/enclave-prod/` |
 |---|---|---|
-| Offline `terraform plan` | ✅ | ❌ (needs ADC) |
+| Offline `tofu plan` | ✅ | ❌ (needs ADC) |
 | Real GCP resources on apply | ❌ (synthetic outputs) | ✅ |
 | Default for `tabula enclave up` | ✅ (no flag) | `--composition prod` |
 | CI / test use | ✅ | needs sandbox project |
@@ -48,8 +55,8 @@ Each `./stubs/<name>/` module:
    would provide (`classifier_ip`, `noise_port`, etc.). The synthetic IPs
    are deliberately drawn from RFC 5737 TEST-NET-3 (`203.0.113.0/24`) so
    it's clear at a glance they are documentation/synthetic.
-3. Makes zero cloud API calls — `terraform plan` and `terraform apply`
-   succeed with no GCP credentials needed.
+3. Makes zero cloud API calls — `tofu plan` and `tofu apply` (or the
+   `terraform` equivalents) succeed with no GCP credentials needed.
 
 ### Inputs
 
@@ -90,5 +97,5 @@ tabula enclave up smoke --dry-run --project test --region us-central1
 ```
 
 which copies this directory to `~/.tabula/enclaves/smoke/terraform/`, runs
-`terraform init`, then `terraform plan`. With only stubs wired up, this
-must succeed offline.
+`tofu init` (or `terraform init` as a fallback), then `tofu plan`. With
+only stubs wired up, this must succeed offline.
