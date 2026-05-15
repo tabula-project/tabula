@@ -89,6 +89,13 @@ def test_cli_e2e_fake_claude(tmp_path: Path, fake_claude_path: Path) -> None:
     home.mkdir()
     env = os.environ.copy()
     env["HOME"] = str(home)
+    # Clear XDG_CONFIG_HOME so keygen + chat both fall back to ${HOME}/.config
+    # (the test's tmp_path), instead of the host runner's default (e.g.
+    # GitHub Actions Linux runners default XDG_CONFIG_HOME=/home/runner/.config).
+    # Without this clear, `tabula keygen` writes to /home/runner/.config/tabula
+    # while `tabula chat connect` reads from $HOME/.config/tabula — mismatch.
+    # See issue #124.
+    env.pop("XDG_CONFIG_HOME", None)
     # Both the CLI's pin store and the server state are commonly rooted at
     # ``$XDG_CONFIG_HOME`` or ``$HOME/.config/tabula``; setting HOME above is
     # sufficient for both. We also set TABULA_STATE_DIR / TABULA_CONFIG_DIR
