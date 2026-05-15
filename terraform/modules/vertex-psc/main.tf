@@ -38,13 +38,24 @@ locals {
 # rule (this is distinct from PSC to a customer-published service, which is
 # regional). The address is allocated out of the VPC's auto-mode reservation
 # pool unless `psc_address` pins it explicitly.
+#
+# Important: when psc_address is null OR empty string, we MUST omit the
+# `address` field entirely so GCP auto-allocates. The google provider
+# serializes a null string variable as empty-string at the wire, and GCP
+# rejects empty-string with "The field is not a valid IP address" — so we
+# can't just rely on the variable's null default. The conditional below
+# forces the field to be unset when no address is pinned.
 resource "google_compute_global_address" "psc" {
   project      = var.project_id
   name         = "${local.name_prefix}-ip"
   address_type = "INTERNAL"
   purpose      = "PRIVATE_SERVICE_CONNECT"
   network      = var.vpc_id
-  address      = var.psc_address
+  address = (
+    var.psc_address == null || var.psc_address == ""
+    ? null
+    : var.psc_address
+  )
 
   description = "PSC consumer IP for Vertex AI (${var.psc_target}) in enclave ${var.enclave_name}."
 }
