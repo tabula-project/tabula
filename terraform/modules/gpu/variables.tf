@@ -96,9 +96,9 @@ variable "boot_disk_type" {
 # ----- Sleep policy -----
 
 variable "stop_schedule_cron" {
-  description = "Cron expression for the unconditional stop schedule. Default '*/30 * * * *' fires every 30 minutes; the wake signal (separate issue) restarts the VM on demand. NOTE: this can kill in-flight requests — see README."
+  description = "Cron expression for the unconditional stop schedule. Default '0 * * * *' fires hourly; the wake signal (separate issue) restarts the VM on demand. NOTE: this can kill in-flight requests — see README. GCP requires schedules ≥ 1 hour apart (consecutive fires must be ≥ 60min); '0 * * * *' is the most aggressive allowed."
   type        = string
-  default     = "*/30 * * * *"
+  default     = "0 * * * *"
 }
 
 variable "stop_schedule_timezone" {
