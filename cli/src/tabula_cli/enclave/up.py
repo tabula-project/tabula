@@ -143,15 +143,27 @@ def _materialize_workdir(
 ) -> Path:
     """Prepare the per-enclave working directory and return its terraform dir.
 
-    Layout produced::
+    Layout produced for ``stub`` composition::
 
         ~/.tabula/enclaves/<name>/
             terraform.tfvars     (the canonical, user-visible vars file)
-            terraform/           (a copy of the root module so each enclave
-                                  has its own .terraform/ + state)
+            terraform/           (a copy of the stub root module; sibling
+                                  modules live at ./stubs/<name>/ inside)
                 main.tf
                 ...
                 terraform.tfvars (a copy of the parent so terraform auto-loads)
+
+    Layout produced for ``prod`` composition (note the additional ``modules/``
+    sibling — the prod root references its sibling modules at
+    ``../modules/<name>``)::
+
+        ~/.tabula/enclaves/<name>/
+            terraform.tfvars
+            modules/             (copy of terraform/modules/ so prod's
+                                  ``../modules/<name>`` references resolve)
+            terraform/           (a copy of the prod root module)
+                main.tf          (references ../modules/<name>)
+                ...
 
     We copy rather than symlink the root module so the per-enclave dir is
     self-contained and survives a CLI upgrade or repo move.
@@ -169,20 +181,27 @@ def _materialize_workdir(
     workdir = state_mod.enclave_dir(name)
     workdir.mkdir(parents=True, exist_ok=True)
     tf_dir = workdir / "terraform"
+    ignore = shutil.ignore_patterns(
+        ".terraform",
+        ".terraform.lock.hcl",
+        "terraform.tfstate*",
+        "*.tfplan",
+    )
 
     if not tf_dir.exists():
         # First run: copy the entire root module tree (excluding any local
         # .terraform/ from the source -- that's a per-init artifact).
-        shutil.copytree(
-            src,
-            tf_dir,
-            ignore=shutil.ignore_patterns(
-                ".terraform",
-                ".terraform.lock.hcl",
-                "terraform.tfstate*",
-                "*.tfplan",
-            ),
-        )
+        shutil.copytree(src, tf_dir, ignore=ignore)
+
+    # The prod composition's main.tf references sibling modules at
+    # ``../modules/<name>``. Materialize them next to the copied root so the
+    # relative path resolves inside the workdir. The stub composition's
+    # sibling modules live INSIDE ``./stubs/<name>/`` and were copied above.
+    if composition == "prod":
+        modules_src = src.parent / "modules"
+        modules_dst = workdir / "modules"
+        if modules_src.is_dir() and not modules_dst.exists():
+            shutil.copytree(modules_src, modules_dst, ignore=ignore)
 
     # Generate the canonical tfvars next to state.json (operator-visible)...
     canonical_tfvars = _write_tfvars(

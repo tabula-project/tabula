@@ -85,7 +85,11 @@ class TestArgParsing:
     def test_up_help_lists_flags(self, runner: CliRunner) -> None:
         result = runner.invoke(root_app, ["enclave", "up", "--help"])
         assert result.exit_code == 0
-        out = result.stdout
+        # Typer/Rich injects ANSI colour codes that split flag names like
+        # "\x1b[1;36m-\x1b[0m\x1b[1;36m-project\x1b[0m" — strip them before
+        # the substring check so the test isn't brittle to colour formatting.
+        import re
+        out = re.sub(r"\x1b\[[0-9;]*m", "", result.stdout)
         for flag in (
             "--project", "--region", "--dry-run", "--yes",
             "--verbose", "--composition",
@@ -208,6 +212,65 @@ class TestComposition:
             f"expected EXIT_OK; got {result.exit_code}; "
             f"stdout={result.stdout!r} stderr={result.stderr!r}"
         )
+
+    def test_prod_workdir_includes_modules_sibling(
+        self, monkeypatch, tmp_path
+    ) -> None:
+        """Regression for #111: prod composition's main.tf references
+        ../modules/<name>; _materialize_workdir must copy terraform/modules/
+        next to the copied root or `terraform init` fails with 'Unable to
+        evaluate directory symlink: lstat ../modules: no such file...'."""
+        # Build a fake terraform layout: terraform/{enclave-prod,modules}.
+        fake_root = tmp_path / "tf"
+        prod_src = fake_root / "enclave-prod"
+        modules_src = fake_root / "modules"
+        prod_src.mkdir(parents=True)
+        (prod_src / "main.tf").write_text("# fake prod composition\n")
+        for mod in ("network", "iam", "firewall", "classifier", "gpu", "gitea", "vertex-psc"):
+            d = modules_src / mod
+            d.mkdir(parents=True)
+            (d / "main.tf").write_text(f"# {mod}\n")
+        # Point the CLI at this fake layout's prod root.
+        monkeypatch.setenv("TABULA_TERRAFORM_ROOT", str(prod_src))
+        # Isolate ~/.tabula.
+        monkeypatch.setenv("TABULA_HOME", str(tmp_path / "home"))
+
+        tf_dir = enclave_mod._materialize_workdir(
+            "prodtest", project_id="p", region="us-central1", composition="prod",
+        )
+        workdir = tf_dir.parent
+        modules_dst = workdir / "modules"
+
+        # The composition root was copied.
+        assert (tf_dir / "main.tf").is_file()
+        # The sibling modules tree was copied next to it.
+        assert modules_dst.is_dir(), (
+            f"expected {modules_dst} to exist (modules sibling for "
+            f"prod composition); workdir contains: {list(workdir.iterdir())}"
+        )
+        for mod in ("network", "iam", "firewall", "classifier", "gpu", "gitea", "vertex-psc"):
+            assert (modules_dst / mod / "main.tf").is_file(), (
+                f"expected modules/{mod}/main.tf in workdir"
+            )
+
+    def test_stub_workdir_does_not_create_modules_sibling(
+        self, monkeypatch, tmp_path
+    ) -> None:
+        """The stub composition's modules live at ./stubs/<name>/ inside
+        the copied root — there should NOT be a modules/ sibling created."""
+        fake_root = tmp_path / "tf"
+        stub_src = fake_root / "enclave"
+        stub_src.mkdir(parents=True)
+        (stub_src / "main.tf").write_text("# fake stub composition\n")
+        # Note: no terraform/modules/ created — proving stub doesn't reach for it.
+        monkeypatch.setenv("TABULA_TERRAFORM_ROOT", str(stub_src))
+        monkeypatch.setenv("TABULA_HOME", str(tmp_path / "home"))
+
+        tf_dir = enclave_mod._materialize_workdir(
+            "stubtest", project_id="p", region="us-central1", composition="stub",
+        )
+        workdir = tf_dir.parent
+        assert not (workdir / "modules").exists()
 
 
 # --------------------------------------------------------------------------- #
