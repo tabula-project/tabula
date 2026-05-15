@@ -62,7 +62,14 @@ from tabula_wire.proto.v1 import (
     Welcome,
 )
 
-DEFAULT_KEY_PATH = "~/.config/tabula/client_key"
+# Help-text default. The actual path is resolved via
+# `tabula_cli.keygen.commands.default_key_path("client")` when the operator
+# does NOT pass --key-path; that helper honors XDG_CONFIG_HOME (matching
+# what `tabula keygen` writes to). Hardcoding `~/.config/tabula/client_key`
+# here previously caused CI flake when XDG_CONFIG_HOME was set on the host
+# but HOME was overridden by the test (issue #124).
+_DEFAULT_KEY_PATH_SENTINEL = "<default>"
+DEFAULT_KEY_PATH = "~/.config/tabula/client_key"  # display-only string
 DEFAULT_PORT = 7847
 PROMPT = "tabula> "
 SEPARATOR = "\n───\n"  # newline + horizontal box-drawing line + newline
@@ -103,9 +110,12 @@ def connect_command(
         ),
     ),
     key_path: str = typer.Option(
-        DEFAULT_KEY_PATH,
+        _DEFAULT_KEY_PATH_SENTINEL,
         "--key-path",
-        help=f"Client static key file (default: {DEFAULT_KEY_PATH}).",
+        help=(
+            f"Client static key file (default: {DEFAULT_KEY_PATH}; honors "
+            "XDG_CONFIG_HOME, matching where `tabula keygen` writes)."
+        ),
     ),
     connect_timeout: float = typer.Option(
         10.0,
@@ -148,6 +158,12 @@ def _run_connect(
     except _UsageError as exc:
         print(f"tabula chat connect: {exc}", file=sys.stderr)
         return 2
+
+    # Resolve the default key path via the same helper `tabula keygen`
+    # uses, so XDG_CONFIG_HOME semantics match (issue #124).
+    if key_path == _DEFAULT_KEY_PATH_SENTINEL:
+        from tabula_cli.keygen.commands import default_key_path
+        key_path = str(default_key_path("client"))
 
     try:
         local_static_key = _load_static_key(key_path)

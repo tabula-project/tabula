@@ -254,7 +254,11 @@ def test_keygen_help_runs() -> None:
     """``tabula keygen --help`` lists the generate-side flags."""
     result = runner.invoke(tabula_app, ["keygen", "--help"])
     assert result.exit_code == 0
-    out = result.stdout
+    # Strip ANSI color codes — Typer/Rich injects them and splits flag names
+    # like "\x1b[1;36m-\x1b[0m\x1b[1;36m-role\x1b[0m" so substring checks
+    # against contiguous "--role" fail. Same fix as test_up_help_lists_flags.
+    import re
+    out = re.sub(r"\x1b\[[0-9;]*m", "", result.stdout)
     assert "X25519" in out
     assert "--role" in out
     assert "--force" in out
