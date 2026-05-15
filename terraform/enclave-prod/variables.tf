@@ -74,3 +74,29 @@ variable "gpu_machine_type" {
   type        = string
   default     = "n1-standard-4"
 }
+
+# ----- GPU attachment escape hatch (#122) -----
+#
+# Per-deploy boolean to skip the GPU module entirely. Default is `true` —
+# the GPU stays a default-attached resource because the long-term capability
+# story (etl/l3 local models, Bower memory) needs it. This flag is the
+# operator's escape hatch when the GCP `GPUS_ALL_REGIONS` quota is pending
+# approval (often hours-to-days for new projects) and the chat MVP path —
+# which uses Vertex AI for inference, not the local GPU — is the only thing
+# the operator needs deployed today.
+#
+# Reversibility: re-running `tabula enclave up` without `--no-gpu` once
+# quota lands adds the GPU module via terraform's normal idempotency.
+
+variable "attach_gpu" {
+  description = <<-EOT
+    Whether to provision the GPU module (default true). Set to false to
+    deploy a no-GPU enclave variant — useful while the GCP `GPUS_ALL_REGIONS`
+    quota approval is pending. The chat MVP path doesn't use the local GPU
+    (the classifier calls Vertex AI for inference), so a no-GPU enclave is
+    functionally complete for chat-shaped dogfood. Set via the CLI's
+    `--no-gpu` flag (`tabula enclave up <name> --composition prod --no-gpu`).
+  EOT
+  type        = bool
+  default     = true
+}

@@ -130,6 +130,7 @@ def _write_tfvars(
     zone: Optional[str] = None,
     gpu_accelerator_type: Optional[str] = None,
     gpu_machine_type: Optional[str] = None,
+    attach_gpu: bool = True,
 ) -> Path:
     """Render a minimal ``terraform.tfvars`` for the enclave root module.
 
@@ -137,6 +138,11 @@ def _write_tfvars(
     own defaults (T4 + n1-standard-4) remain authoritative when the operator
     doesn't pass `--gpu-type` / `--machine-type`. The stub composition
     silently ignores extra vars.
+
+    ``attach_gpu`` is emitted only when False (the opt-out path) so the prod
+    composition's own ``default = true`` remains authoritative when the
+    operator doesn't pass ``--no-gpu``. This mirrors the "only emit overrides"
+    pattern used for the GPU shape flags above (#120 / #122).
     """
     target_dir.mkdir(parents=True, exist_ok=True)
     tfvars = target_dir / "terraform.tfvars"
@@ -151,6 +157,8 @@ def _write_tfvars(
         lines.append(f'gpu_accelerator_type = "{gpu_accelerator_type}"')
     if gpu_machine_type:
         lines.append(f'gpu_machine_type     = "{gpu_machine_type}"')
+    if not attach_gpu:
+        lines.append("attach_gpu  = false")
     tfvars.write_text("\n".join(lines) + "\n", encoding="utf-8")
     return tfvars
 
@@ -164,6 +172,7 @@ def _materialize_workdir(
     zone: Optional[str] = None,
     gpu_accelerator_type: Optional[str] = None,
     gpu_machine_type: Optional[str] = None,
+    attach_gpu: bool = True,
 ) -> Path:
     """Prepare the per-enclave working directory and return its terraform dir.
 
@@ -236,6 +245,7 @@ def _materialize_workdir(
         zone=zone,
         gpu_accelerator_type=gpu_accelerator_type,
         gpu_machine_type=gpu_machine_type,
+        attach_gpu=attach_gpu,
     )
     # ...and mirror them into the terraform working dir so terraform auto-loads.
     target = tf_dir / "terraform.tfvars"
@@ -345,6 +355,17 @@ def up(
             "the only one that attaches L4."
         ),
     ),
+    no_gpu: bool = typer.Option(
+        False,
+        "--no-gpu",
+        help=(
+            "Skip GPU attachment (prod composition only). Useful while the GCP "
+            "`GPUS_ALL_REGIONS` quota is pending: the chat MVP path doesn't use "
+            "the local GPU (the classifier calls Vertex AI for inference). "
+            "Default deploys with GPU. Reversible: re-run without --no-gpu to "
+            "add the GPU later. The stub composition silently ignores this flag."
+        ),
+    ),
 ) -> None:
     """Provision (or re-apply) the enclave named ``name``.
 
@@ -432,6 +453,7 @@ def up(
             zone=effective_zone,
             gpu_accelerator_type=gpu_type,
             gpu_machine_type=machine_type,
+            attach_gpu=not no_gpu,
         )
     except FileNotFoundError as e:
         typer.echo(f"error: {e}", err=True)

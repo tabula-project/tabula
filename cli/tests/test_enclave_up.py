@@ -93,6 +93,7 @@ class TestArgParsing:
         for flag in (
             "--project", "--region", "--zone", "--dry-run", "--yes",
             "--verbose", "--composition", "--gpu-type", "--machine-type",
+            "--no-gpu",
         ):
             assert flag in out
 
@@ -381,6 +382,65 @@ class TestComposition:
         text = tfvars_path.read_text()
         assert 'gpu_accelerator_type = "nvidia-l4"' in text
         assert 'gpu_machine_type     = "g2-standard-4"' in text
+
+    def test_no_gpu_default_omits_attach_gpu_line(self, tmp_path) -> None:
+        """When --no-gpu is NOT passed, tfvars must NOT contain `attach_gpu = false`.
+
+        Back-compat invariant: the prod composition's own `default = true` for
+        `attach_gpu` stays authoritative when the operator doesn't opt out.
+        Mirrors `test_gpu_type_default_omits_tfvars_lines` (#120) — only the
+        opt-out path emits the line.
+        """
+        from tabula_cli.enclave import up as up_mod
+        path = up_mod._write_tfvars(
+            tmp_path / "default-gpu",
+            project_id="p", region="us-east1", name="x", zone="us-east1-c",
+        )
+        text = path.read_text()
+        assert "attach_gpu" not in text
+        # Sanity: default kwarg is True when omitted.
+        path_explicit_true = up_mod._write_tfvars(
+            tmp_path / "explicit-true",
+            project_id="p", region="us-east1", name="x", zone="us-east1-c",
+            attach_gpu=True,
+        )
+        assert "attach_gpu" not in path_explicit_true.read_text()
+
+    def test_no_gpu_flag_sets_attach_gpu_false(
+        self,
+        runner: CliRunner,
+        tabula_home: Path,
+        monkeypatch,
+        mock_tf,
+        tmp_path,
+    ) -> None:
+        """`--no-gpu` flag value lands in the materialized tfvars as `attach_gpu = false`.
+
+        Mirrors `test_gpu_flags_thread_through_to_tfvars`. Uses the stub
+        composition because the prod composition would also need real sibling
+        modules + ADC; we're asserting the CLI->tfvars plumbing, not the
+        terraform plan itself. The stub composition silently ignores extra
+        vars (terraform/tofu warns, doesn't error, on unknown tfvars entries).
+        """
+        result = runner.invoke(
+            root_app,
+            [
+                "enclave", "up", "nogputest",
+                "--project", "test-proj",
+                "--region", "us-east1",
+                "--zone", "us-east1-c",
+                "--no-gpu",
+                "--dry-run",
+            ],
+        )
+        assert result.exit_code == enclave_mod.EXIT_OK, (
+            f"exit={result.exit_code} stdout={result.stdout!r} "
+            f"stderr={result.stderr!r}"
+        )
+        tfvars_path = state_mod.enclave_dir("nogputest") / "terraform.tfvars"
+        assert tfvars_path.exists()
+        text = tfvars_path.read_text()
+        assert "attach_gpu  = false" in text
 
 
 # --------------------------------------------------------------------------- #
