@@ -121,16 +121,25 @@ def _adc_present() -> bool:
     return well_known.exists()
 
 
-def _write_tfvars(target_dir: Path, *, project_id: str, region: str, name: str) -> Path:
+def _write_tfvars(
+    target_dir: Path,
+    *,
+    project_id: str,
+    region: str,
+    name: str,
+    zone: Optional[str] = None,
+) -> Path:
     """Render a minimal ``terraform.tfvars`` for the enclave root module."""
     target_dir.mkdir(parents=True, exist_ok=True)
     tfvars = target_dir / "terraform.tfvars"
-    payload = (
-        f'project_id   = "{project_id}"\n'
-        f'region       = "{region}"\n'
-        f'enclave_name = "{name}"\n'
-    )
-    tfvars.write_text(payload, encoding="utf-8")
+    lines = [
+        f'project_id   = "{project_id}"',
+        f'region       = "{region}"',
+        f'enclave_name = "{name}"',
+    ]
+    if zone:
+        lines.append(f'zone         = "{zone}"')
+    tfvars.write_text("\n".join(lines) + "\n", encoding="utf-8")
     return tfvars
 
 
@@ -140,6 +149,7 @@ def _materialize_workdir(
     project_id: str,
     region: str,
     composition: str = "stub",
+    zone: Optional[str] = None,
 ) -> Path:
     """Prepare the per-enclave working directory and return its terraform dir.
 
@@ -205,7 +215,7 @@ def _materialize_workdir(
 
     # Generate the canonical tfvars next to state.json (operator-visible)...
     canonical_tfvars = _write_tfvars(
-        workdir, project_id=project_id, region=region, name=name
+        workdir, project_id=project_id, region=region, name=name, zone=zone
     )
     # ...and mirror them into the terraform working dir so terraform auto-loads.
     target = tf_dir / "terraform.tfvars"
@@ -257,6 +267,15 @@ def up(
         "us-central1",
         "--region",
         help="GCP region for the enclave.",
+    ),
+    zone: Optional[str] = typer.Option(
+        None,
+        "--zone",
+        help=(
+            "GCP zone for VM-bearing modules (classifier, gpu, gitea). Defaults "
+            "to `<region>-a`. Pin a different zone (e.g. `us-east1-c`) when the "
+            "default zone is at T4 capacity."
+        ),
     ),
     dry_run: bool = typer.Option(
         False,
@@ -358,9 +377,18 @@ def up(
                 raise typer.Exit(code=EXIT_OK)
 
     # 5) Materialize the working directory and tfvars.
+    # Default zone to `<region>-a` if not pinned. The prod composition's
+    # variables.tf has `default = "us-central1-a"` baked in, but for any
+    # non-us-central1 region that default is wrong, so the CLI computes the
+    # right zone-a based on the current region.
+    effective_zone = zone or f"{region}-a"
     try:
         tf_dir = _materialize_workdir(
-            name, project_id=project_id, region=region, composition=composition
+            name,
+            project_id=project_id,
+            region=region,
+            composition=composition,
+            zone=effective_zone,
         )
     except FileNotFoundError as e:
         typer.echo(f"error: {e}", err=True)

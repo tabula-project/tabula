@@ -13,12 +13,21 @@ variable "region" {
 }
 
 variable "enclave_name" {
-  description = "Short name used to prefix resource names (e.g., 'prod', 'dev01')."
+  description = "Short name used to prefix resource names (e.g., 'prod', 'dev01'). Max 17 chars to leave room for the 'psc' suffix on the PSC forwarding rule (GCP cap = 20 chars total, alphanumeric only)."
   type        = string
 
   validation {
     condition     = can(regex("^[a-z]([-a-z0-9]{0,30}[a-z0-9])?$", var.enclave_name))
     error_message = "enclave_name must be a valid GCE name fragment: lowercase letters, digits, and hyphens, 1-32 chars, starting with a letter."
+  }
+
+  validation {
+    # PSC forwarding rule for Google APIs must be ≤20 chars, alphanumeric
+    # only (no hyphens). We construct it as `${var.enclave_name}psc`.
+    # `replace` strips any hyphens from enclave_name so the resulting FR name
+    # is still alphanumeric, but we still need the input to be short enough.
+    condition     = length(replace(var.enclave_name, "-", "")) <= 17
+    error_message = "enclave_name (with hyphens stripped) must be ≤17 chars so the derived PSC forwarding rule name '${replace(var.enclave_name, "-", "")}psc' fits GCP's 20-char cap."
   }
 }
 
@@ -53,12 +62,22 @@ variable "psc_target" {
 
 variable "psc_address" {
   description = <<-EOT
-    Optional explicit internal IPv4 address for the PSC endpoint. If null, GCP
-    auto-allocates an address from the VPC's internal range. Pinning is useful
-    when DNS records are managed outside this module.
+    Explicit internal IPv4 address for the PSC endpoint. REQUIRED for
+    `purpose = PRIVATE_SERVICE_CONNECT`; auto-allocation is NOT supported
+    by GCP for this purpose (confirmed by error "Invalid value for field
+    'resource.address': ''" when null is passed).
+
+    Default is `192.168.99.99`, an RFC 1918 IP that doesn't overlap with
+    the network module's default workload subnet (10.10.0.0/24). Override
+    if your VPC layout uses a conflicting range.
   EOT
   type        = string
-  default     = null
+  default     = "192.168.99.99"
+
+  validation {
+    condition     = can(regex("^([0-9]{1,3}\\.){3}[0-9]{1,3}$", var.psc_address))
+    error_message = "psc_address must be a valid IPv4 dotted-decimal address."
+  }
 }
 
 variable "create_dns_zone" {

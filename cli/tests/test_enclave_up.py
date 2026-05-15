@@ -91,7 +91,7 @@ class TestArgParsing:
         import re
         out = re.sub(r"\x1b\[[0-9;]*m", "", result.stdout)
         for flag in (
-            "--project", "--region", "--dry-run", "--yes",
+            "--project", "--region", "--zone", "--dry-run", "--yes",
             "--verbose", "--composition",
         ):
             assert flag in out
@@ -252,6 +252,56 @@ class TestComposition:
             assert (modules_dst / mod / "main.tf").is_file(), (
                 f"expected modules/{mod}/main.tf in workdir"
             )
+
+    def test_zone_default_derives_from_region(
+        self, monkeypatch, tmp_path
+    ) -> None:
+        """When --zone is not passed, tfvars should get `<region>-a`."""
+        from tabula_cli.enclave import up as up_mod
+        # _write_tfvars writes the region-and-name + optional zone; verify
+        # that with zone=None NO zone line is written, and with explicit
+        # zone the line appears.
+        path_no_zone = up_mod._write_tfvars(
+            tmp_path / "no-zone", project_id="p", region="us-east1", name="x",
+        )
+        text_no_zone = path_no_zone.read_text()
+        assert "zone" not in text_no_zone
+        assert 'region       = "us-east1"' in text_no_zone
+
+        path_with_zone = up_mod._write_tfvars(
+            tmp_path / "with-zone",
+            project_id="p", region="us-east1", name="x", zone="us-east1-c",
+        )
+        text_with_zone = path_with_zone.read_text()
+        assert 'zone         = "us-east1-c"' in text_with_zone
+
+    def test_zone_flag_threads_through_to_tfvars(
+        self,
+        runner: CliRunner,
+        tabula_home: Path,
+        monkeypatch,
+        mock_tf,
+        tmp_path,
+    ) -> None:
+        """--zone flag value lands in the materialized tfvars file."""
+        result = runner.invoke(
+            root_app,
+            [
+                "enclave", "up", "zonetest",
+                "--project", "test-proj",
+                "--region", "us-east1",
+                "--zone", "us-east1-c",
+                "--dry-run",
+                # default --composition stub
+            ],
+        )
+        assert result.exit_code == enclave_mod.EXIT_OK, (
+            f"exit={result.exit_code} stdout={result.stdout!r} stderr={result.stderr!r}"
+        )
+        # The tfvars file should exist with the zone line.
+        tfvars_path = state_mod.enclave_dir("zonetest") / "terraform.tfvars"
+        assert tfvars_path.exists()
+        assert 'zone         = "us-east1-c"' in tfvars_path.read_text()
 
     def test_stub_workdir_does_not_create_modules_sibling(
         self, monkeypatch, tmp_path
