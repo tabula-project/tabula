@@ -51,10 +51,18 @@ module "firewall" {
 # GPU — T4 host + sleep schedule + bootstrap. The wake-signal IAM binding
 # from the classifier SA is created inside this module once the instance
 # exists, closing the IAM/GPU dependency cycle.
+#
+# Conditional via `var.attach_gpu` (#122). Default is on — the GPU is the
+# long-term capability story (etl/l3 local models, Bower memory). Operators
+# opt out per-deploy via `tabula enclave up --no-gpu` while GCP
+# `GPUS_ALL_REGIONS` quota is pending. When count = 0, downstream
+# references (classifier wake target, IAM binding) gracefully degrade to
+# empty/null since both modules already accept the no-target shape.
 ###############################################################################
 
 module "gpu" {
   source = "../modules/gpu"
+  count  = var.attach_gpu ? 1 : 0
 
   project_id        = var.project_id
   region            = var.region
@@ -74,6 +82,11 @@ module "gpu" {
 ###############################################################################
 # Classifier — always-on small VM that holds the Noise XX endpoint, classifies
 # inbound, and wakes the GPU on demand.
+#
+# When `var.attach_gpu = false`, gpu_instance_name / gpu_instance_zone are
+# passed as empty strings — the classifier module's variables.tf documents
+# this as the "GPU does not yet exist" sentinel and the wake-signal script
+# placeholder tolerates an empty target.
 ###############################################################################
 
 module "classifier" {
@@ -84,8 +97,8 @@ module "classifier" {
   zone                  = var.zone
   subnet_id             = module.network.subnet_id
   service_account_email = module.iam.classifier_sa_email
-  gpu_instance_name     = module.gpu.instance_name
-  gpu_instance_zone     = module.gpu.zone
+  gpu_instance_name     = var.attach_gpu ? module.gpu[0].instance_name : ""
+  gpu_instance_zone     = var.attach_gpu ? module.gpu[0].zone : ""
 }
 
 ###############################################################################
