@@ -63,6 +63,12 @@ module "gpu" {
   network_self_link = module.network.vpc_self_link
   subnet_self_link  = module.network.subnet_self_link
   gpu_sa_email      = module.iam.gpu_sa_email
+
+  # Pass through composition-root overrides (#120). Defaults keep the
+  # original T4 + n1-standard-4 shape; operators flip to L4 + g2-* via
+  # the CLI's --gpu-type / --machine-type flags when T4 is capacity-bound.
+  accelerator_type = var.gpu_accelerator_type
+  machine_type     = var.gpu_machine_type
 }
 
 ###############################################################################
