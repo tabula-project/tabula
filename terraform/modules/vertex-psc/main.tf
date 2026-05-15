@@ -25,37 +25,32 @@ locals {
     "googleapis.com.",
   ]
 
-  # Map the `psc_target` bundle name to the global PSC service attachment URI
-  # Google publishes for each Private Google Access bundle.
-  psc_target_uri = {
-    "all-apis" = "https://www.googleapis.com/compute/v1/projects/google/global/networks/default/serviceAttachments/all-apis"
-    "vpc-sc"   = "https://www.googleapis.com/compute/v1/projects/google/global/networks/default/serviceAttachments/vpc-sc"
-  }[var.psc_target]
+  # PSC forwarding rule target for Google APIs is the bundle NAME directly
+  # ("all-apis" or "vpc-sc") — NOT a constructed URL. GCP rejects fake URLs
+  # like `projects/google/.../serviceAttachments/<bundle>`. Per GCP PSC docs:
+  #   target = "all-apis"   # or "vpc-sc"
+  psc_target_uri = var.psc_target
 }
 
 # Reserve an internal IPv4 address inside the VPC for the PSC endpoint.
 # PSC for Google APIs uses a *global* address backed by a *global* forwarding
 # rule (this is distinct from PSC to a customer-published service, which is
-# regional). The address is allocated out of the VPC's auto-mode reservation
-# pool unless `psc_address` pins it explicitly.
+# regional).
 #
-# Important: when psc_address is null OR empty string, we MUST omit the
-# `address` field entirely so GCP auto-allocates. The google provider
-# serializes a null string variable as empty-string at the wire, and GCP
-# rejects empty-string with "The field is not a valid IP address" — so we
-# can't just rely on the variable's null default. The conditional below
-# forces the field to be unset when no address is pinned.
+# Important: GCP requires an EXPLICIT address for `purpose =
+# PRIVATE_SERVICE_CONNECT`. Auto-allocation (omitting `address` or setting
+# null) is NOT supported for this purpose — confirmed by GCP error
+# "Invalid value for field 'resource.address': ''" when null is passed.
+# The variable defaults to a sensible RFC 1918 IP that doesn't conflict
+# with the network module's default workload subnet (10.10.0.0/24).
+# Pin a different IP via `psc_address` if your VPC layout differs.
 resource "google_compute_global_address" "psc" {
   project      = var.project_id
   name         = "${local.name_prefix}-ip"
   address_type = "INTERNAL"
   purpose      = "PRIVATE_SERVICE_CONNECT"
   network      = var.vpc_id
-  address = (
-    var.psc_address == null || var.psc_address == ""
-    ? null
-    : var.psc_address
-  )
+  address      = var.psc_address
 
   description = "PSC consumer IP for Vertex AI (${var.psc_target}) in enclave ${var.enclave_name}."
 }
@@ -69,7 +64,10 @@ resource "google_compute_global_address" "psc" {
 # distinct from `INTERNAL` / `EXTERNAL` schemes used elsewhere.
 resource "google_compute_global_forwarding_rule" "psc" {
   project = var.project_id
-  name    = "${local.name_prefix}-fr"
+  # GCP constraint for PSC FR names: 1-20 chars, lowercase letters and digits
+  # ONLY (no hyphens), must start with a letter. `${local.name_prefix}-fr`
+  # would produce e.g. "dogfood-vertex-psc-fr" which violates both rules.
+  name = "${var.enclave_name}psc"
 
   ip_address            = google_compute_global_address.psc.id
   target                = local.psc_target_uri
