@@ -128,8 +128,16 @@ def _write_tfvars(
     region: str,
     name: str,
     zone: Optional[str] = None,
+    gpu_accelerator_type: Optional[str] = None,
+    gpu_machine_type: Optional[str] = None,
 ) -> Path:
-    """Render a minimal ``terraform.tfvars`` for the enclave root module."""
+    """Render a minimal ``terraform.tfvars`` for the enclave root module.
+
+    Optional kwargs are emitted only when non-None so the prod composition's
+    own defaults (T4 + n1-standard-4) remain authoritative when the operator
+    doesn't pass `--gpu-type` / `--machine-type`. The stub composition
+    silently ignores extra vars.
+    """
     target_dir.mkdir(parents=True, exist_ok=True)
     tfvars = target_dir / "terraform.tfvars"
     lines = [
@@ -139,6 +147,10 @@ def _write_tfvars(
     ]
     if zone:
         lines.append(f'zone         = "{zone}"')
+    if gpu_accelerator_type:
+        lines.append(f'gpu_accelerator_type = "{gpu_accelerator_type}"')
+    if gpu_machine_type:
+        lines.append(f'gpu_machine_type     = "{gpu_machine_type}"')
     tfvars.write_text("\n".join(lines) + "\n", encoding="utf-8")
     return tfvars
 
@@ -150,6 +162,8 @@ def _materialize_workdir(
     region: str,
     composition: str = "stub",
     zone: Optional[str] = None,
+    gpu_accelerator_type: Optional[str] = None,
+    gpu_machine_type: Optional[str] = None,
 ) -> Path:
     """Prepare the per-enclave working directory and return its terraform dir.
 
@@ -215,7 +229,13 @@ def _materialize_workdir(
 
     # Generate the canonical tfvars next to state.json (operator-visible)...
     canonical_tfvars = _write_tfvars(
-        workdir, project_id=project_id, region=region, name=name, zone=zone
+        workdir,
+        project_id=project_id,
+        region=region,
+        name=name,
+        zone=zone,
+        gpu_accelerator_type=gpu_accelerator_type,
+        gpu_machine_type=gpu_machine_type,
     )
     # ...and mirror them into the terraform working dir so terraform auto-loads.
     target = tf_dir / "terraform.tfvars"
@@ -304,6 +324,27 @@ def up(
             "terraform/enclave-prod/README.md for the trade-offs."
         ),
     ),
+    gpu_type: Optional[str] = typer.Option(
+        None,
+        "--gpu-type",
+        help=(
+            "GPU accelerator type for the inference host (prod composition only). "
+            "Default keeps the composition's `nvidia-tesla-t4` (cheapest viable "
+            "shape). Use `nvidia-l4` when T4 capacity is exhausted in your zone "
+            "— L4 is often available when T4 is not, but requires a `g2-*` "
+            "machine type (pair with `--machine-type g2-standard-4`)."
+        ),
+    ),
+    machine_type: Optional[str] = typer.Option(
+        None,
+        "--machine-type",
+        help=(
+            "GCE machine type for the GPU host (prod composition only). Default "
+            "keeps the composition's `n1-standard-4` (pairs with T4). Use "
+            "`g2-standard-4` (or larger) when running L4 — the `g2-*` family is "
+            "the only one that attaches L4."
+        ),
+    ),
 ) -> None:
     """Provision (or re-apply) the enclave named ``name``.
 
@@ -389,6 +430,8 @@ def up(
             region=region,
             composition=composition,
             zone=effective_zone,
+            gpu_accelerator_type=gpu_type,
+            gpu_machine_type=machine_type,
         )
     except FileNotFoundError as e:
         typer.echo(f"error: {e}", err=True)

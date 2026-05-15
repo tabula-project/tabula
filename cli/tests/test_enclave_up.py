@@ -92,7 +92,7 @@ class TestArgParsing:
         out = re.sub(r"\x1b\[[0-9;]*m", "", result.stdout)
         for flag in (
             "--project", "--region", "--zone", "--dry-run", "--yes",
-            "--verbose", "--composition",
+            "--verbose", "--composition", "--gpu-type", "--machine-type",
         ):
             assert flag in out
 
@@ -321,6 +321,66 @@ class TestComposition:
         )
         workdir = tf_dir.parent
         assert not (workdir / "modules").exists()
+
+    def test_gpu_type_default_omits_tfvars_lines(self, tmp_path) -> None:
+        """When --gpu-type / --machine-type are not passed, the tfvars file
+        must NOT contain `gpu_accelerator_type` or `gpu_machine_type` lines.
+
+        Back-compat invariant: the prod composition's own defaults
+        (`nvidia-tesla-t4` + `n1-standard-4`) stay authoritative when the
+        operator doesn't opt in. Adding tfvars lines with the defaults would
+        be silent, but emitting them only on opt-in keeps the tfvars file a
+        readable record of what was overridden vs. what stayed default.
+        """
+        from tabula_cli.enclave import up as up_mod
+        path = up_mod._write_tfvars(
+            tmp_path / "no-gpu-flags",
+            project_id="p", region="us-east1", name="x", zone="us-east1-c",
+        )
+        text = path.read_text()
+        assert "gpu_accelerator_type" not in text
+        assert "gpu_machine_type" not in text
+        # Sanity: the standard lines are still there.
+        assert 'project_id   = "p"' in text
+        assert 'zone         = "us-east1-c"' in text
+
+    def test_gpu_flags_thread_through_to_tfvars(
+        self,
+        runner: CliRunner,
+        tabula_home: Path,
+        monkeypatch,
+        mock_tf,
+        tmp_path,
+    ) -> None:
+        """--gpu-type / --machine-type values land in the materialized tfvars.
+
+        Mirrors `test_zone_flag_threads_through_to_tfvars`. Uses the stub
+        composition because the prod composition would also need the real
+        sibling modules + ADC; we're asserting the CLI->tfvars plumbing,
+        not the terraform plan itself. The stub composition silently
+        ignores extra vars so this is safe.
+        """
+        result = runner.invoke(
+            root_app,
+            [
+                "enclave", "up", "gputest",
+                "--project", "test-proj",
+                "--region", "us-east1",
+                "--zone", "us-east1-c",
+                "--gpu-type", "nvidia-l4",
+                "--machine-type", "g2-standard-4",
+                "--dry-run",
+            ],
+        )
+        assert result.exit_code == enclave_mod.EXIT_OK, (
+            f"exit={result.exit_code} stdout={result.stdout!r} "
+            f"stderr={result.stderr!r}"
+        )
+        tfvars_path = state_mod.enclave_dir("gputest") / "terraform.tfvars"
+        assert tfvars_path.exists()
+        text = tfvars_path.read_text()
+        assert 'gpu_accelerator_type = "nvidia-l4"' in text
+        assert 'gpu_machine_type     = "g2-standard-4"' in text
 
 
 # --------------------------------------------------------------------------- #
